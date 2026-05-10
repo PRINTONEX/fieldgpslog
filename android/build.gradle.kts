@@ -16,8 +16,7 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 
-// Fix for "Namespace not specified" error in older plugins like isar_flutter_libs
-// We apply this BEFORE evaluationDependsOn to avoid "already evaluated" errors
+// Keep legacy Android plugins compatible with AGP namespace requirements.
 subprojects {
     if (project.name != "app") {
         afterEvaluate {

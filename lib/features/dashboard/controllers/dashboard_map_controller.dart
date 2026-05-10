@@ -1,70 +1,98 @@
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'dart:ui';
+
 import 'package:get/get.dart';
-import '../../../services/database_service.dart';
-import '../../../models/gps_log.dart';
-import 'package:isar/isar.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class DashboardMapController extends GetxController {
-  final DatabaseService _db = Get.find<DatabaseService>();
-  
   GoogleMapController? mapController;
-  final LatLng initialPosition = const LatLng(20.5937, 78.9629); // Default India
-  
-  var markers = <Marker>{}.obs;
-  var polylines = <Polyline>{}.obs;
 
+  // 🔥 REQUIRED VARIABLES
+  final RxSet<Polyline> polylines = <Polyline>{}.obs;
+  final RxSet<Marker> markers = <Marker>{}.obs;
+  final List<LatLng> routePoints = [];
+
+  BitmapDescriptor? bikeIcon;
+
+  // ✅ ADD THIS
+  final Rx<LatLng> initialPosition = const LatLng(25.5788, 91.8933).obs;
+
+  // ---------------- MAP ----------------
   void onMapCreated(GoogleMapController controller) {
     mapController = controller;
   }
 
-  // Method to load and show routes for a specific date
-  Future<void> loadRoute(DateTime date) async {
-    final startOfDay = DateTime(date.year, date.month, date.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
-
-    // Using generic findAll and filtering in Dart to bypass missing generated filter methods
-    final allLogs = await _db.isar.collection<GpsLog>().where().findAll();
-    
-    final logs = allLogs.where((log) {
-      return log.startTime.isAfter(startOfDay) && log.startTime.isBefore(endOfDay);
-    }).toList();
-
-    _drawLogs(logs);
+  // ✅ Set initial position (used for live location on app open)
+  void setInitialPosition(LatLng position) {
+    initialPosition.value = position;
   }
 
-  void _drawLogs(List<GpsLog> logs) {
-    markers.clear();
-    polylines.clear();
+  // ✅ Set bike icon
+  void setBikeIcon(BitmapDescriptor? icon) {
+    bikeIcon = icon;
+  }
 
-    List<LatLng> routePoints = [];
-    
-    for (var log in logs) {
-      final points = log.points.map((p) => LatLng(p.latitude!, p.longitude!)).toList();
-      routePoints.addAll(points);
-
-      // Add markers for stays
-      for (var stay in log.stays) {
-        markers.add(Marker(
-          markerId: MarkerId('stay_${stay.arrivalTime.toString()}'),
-          position: LatLng(stay.latitude!, stay.longitude!),
-          infoWindow: InfoWindow(
-            title: "Stay Point",
-            snippet: "Duration: ${stay.durationMinutes} mins",
+  // ---------------- CAMERA ----------------
+  void updateCamera(LatLng position, {double bearing = 0}) {
+    try {
+      mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: position,
+            zoom: 18, // ✅ Closer zoom for professional tracking
+            bearing: bearing, // ✅ Rotate camera with vehicle
+            tilt: 45, // ✅ Professional 3D view
           ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-        ));
-      }
-    }
-
-    if (routePoints.isNotEmpty) {
-      polylines.add(Polyline(
-        polylineId: const PolylineId('route'),
-        points: routePoints,
-        color: Get.theme.colorScheme.primary,
-        width: 5,
-      ));
-      
-      mapController?.animateCamera(CameraUpdate.newLatLngZoom(routePoints.last, 14));
+        ),
+      );
+    } catch (e) {
+      mapController = null; 
     }
   }
+
+  // 🔥 LIVE ROUTE
+  void updateRoute(LatLng point) {
+    // Only add if point is different from last to save memory
+    if (routePoints.isEmpty || routePoints.last != point) {
+      routePoints.add(point);
+    }
+
+    polylines.add(
+      Polyline(
+        polylineId: const PolylineId("route"),
+        points: List.from(routePoints), // Create copy to trigger update
+        color: const Color(0xFF2196F3),
+        width: 6,
+        jointType: JointType.round,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+      ),
+    );
+  }
+
+  // ✅ Professional Marker Update
+  void updateBikeMarker(LatLng position, {double rotation = 0}) {
+    // We update the set directly. Since Marker is immutable, we replace it.
+    final bikeMarker = Marker(
+      markerId: const MarkerId("bike"),
+      position: position,
+      icon: bikeIcon ?? BitmapDescriptor.defaultMarker,
+      rotation: rotation,
+      anchor: const Offset(0.5, 0.5), // ✅ Center icon correctly
+      flat: true, // ✅ Flat on map for professional look
+      zIndexInt: 100, // ✅ Ensure it's always on top
+    );
+
+    // Efficiently update the set
+    markers.removeWhere((m) => m.markerId.value == "bike");
+    markers.add(bikeMarker);
+  }
+
+  @override
+  void onClose() {
+    mapController = null;
+    super.onClose();
+  }
+// =================================================
+
+// ==================================================
 }

@@ -1,11 +1,18 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get/get.dart';
+
 import 'database_service.dart';
 import 'location_service.dart';
 
-final databaseServiceProvider = Provider<DatabaseService>((ref) {
-  return DatabaseService();
-});
+class ServiceLocator {
+  const ServiceLocator._();
 
-final locationServiceProvider = Provider<LocationService>((ref) {
-  return LocationService();
-});
+  static DatabaseService get database => Get.find<DatabaseService>();
+
+  static LocationService get location {
+    if (!Get.isRegistered<LocationService>()) {
+      Get.put(LocationService(), permanent: true);
+    }
+
+    return Get.find<LocationService>();
+  }
+}

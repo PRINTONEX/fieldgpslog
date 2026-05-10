@@ -19,9 +19,8 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    // Downgrading AGP to 7.4.2 to allow libraries using 'package' in AndroidManifest.xml (like Isar 3.x)
-    id("com.android.application") version "7.4.2" apply false
-    id("org.jetbrains.kotlin.android") version "1.8.22" apply false
+    id("com.android.application") version "8.11.1" apply false
+    id("org.jetbrains.kotlin.android") version "2.3.10" apply false
 }
 
 include(":app")

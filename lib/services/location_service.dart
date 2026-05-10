@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class LocationService {
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -25,6 +27,14 @@ class LocationService {
       return false;
     }
 
+    // ✅ Request Activity Recognition Permission
+    if (Platform.isAndroid) {
+      final activityStatus = await Permission.activityRecognition.request();
+      if (activityStatus.isDenied) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -33,8 +43,9 @@ class LocationService {
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
     );
-    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings)
-        .listen(onLocationChanged);
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(locationSettings: locationSettings)
+            .listen(onLocationChanged);
   }
 
   void stopTracking() {

@@ -1,20 +1,32 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:get/get.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:activity_recognition_flutter/activity_recognition_flutter.dart';
 import '../../../services/database_service.dart';
 import '../../../models/gps_log.dart';
 import '../../../models/vehicle.dart';
-import 'package:isar/isar.dart';
+import 'dart:developer' as developer;
+
+import '../../dashboard/controllers/dashboard_map_controller.dart';
 
 class TrackingController extends GetxController {
   final DatabaseService _db = Get.find<DatabaseService>();
-  
+
   var isTracking = false.obs;
   var totalDistance = 0.0.obs;
   var totalFare = 0.0.obs;
+  var currentSpeed = 0.0.obs;
+  var currentBearing = 0.0.obs;
+  var currentActivity = "STILL".obs;
+  var tripDuration = "00:00:00".obs;
   var selectedVehicle = Rxn<Vehicle>();
-  
+  LatLng? _lastPosition;
   StreamSubscription? _serviceSubscription;
+  StreamSubscription? _activitySubscription;
+  Timer? _durationTimer;
+  DateTime? _startTime;
 
   @override
   void onInit() {
@@ -23,25 +35,128 @@ class TrackingController extends GetxController {
     _listenToServiceUpdates();
   }
 
+  double _getBearing(LatLng start, LatLng end) {
+    double lat1 = start.latitude * math.pi / 180;
+    double lon1 = start.longitude * math.pi / 180;
+
+    double lat2 = end.latitude * math.pi / 180;
+    double lon2 = end.longitude * math.pi / 180;
+
+    double dLon = lon2 - lon1;
+
+    double y = math.sin(dLon) * math.cos(lat2);
+    double x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+
+    double bearing = math.atan2(y, x);
+    return (bearing * 180 / math.pi);
+  }
+
   Future<void> _loadDefaultVehicle() async {
-    // Manual filtering in Dart to bypass missing generated filter methods
     try {
-      final allVehicles = await _db.isar.collection<Vehicle>().where().findAll();
-      final vehicle = allVehicles.cast<Vehicle?>().firstWhere(
-        (v) => v?.isDefault ?? false, 
-        orElse: () => null
-      );
+      final allVehicles = _db.getAllVehicles();
+      var vehicle = allVehicles.firstWhereOrNull((v) => v.isDefault);
+      if (vehicle == null && allVehicles.isNotEmpty) {
+        vehicle = allVehicles.first;
+      }
       selectedVehicle.value = vehicle;
     } catch (e) {
-      print("Error loading vehicle: $e");
+      developer.log("Error loading vehicle", error: e);
     }
   }
 
   void _listenToServiceUpdates() {
-    _serviceSubscription = FlutterBackgroundService().on('update').listen((event) {
+    final service = FlutterBackgroundService();
+
+    // Listen to Activity Updates from Background
+    _activitySubscription = service.on('activityUpdate').listen((event) {
       if (event != null) {
-        totalDistance.value = event['distance'] ?? 0.0;
-        totalFare.value = event['fare'] ?? 0.0;
+        final type = event['type'] as String?;
+        if (type != null) {
+          currentActivity.value = type.toUpperCase();
+          developer.log("📡 Activity Update from BG: $type");
+        }
+      }
+    });
+
+    _serviceSubscription = service.on('update').listen((event) {
+          developer.log("📡 RAW EVENT: $event");
+
+          if (event != null) {
+            // ✅ SAFE conversion
+            final distance =
+                (event['distance'] as num?)?.toDouble() ?? 0.0;
+            final fare =
+                (event['fare'] as num?)?.toDouble() ?? 0.0;
+            final speed = (event['speed'] as num?)?.toDouble() ?? 0.0;
+            
+            final startTimeStr = event['startTime'] as String?;
+            if (startTimeStr != null) {
+              _startTime = DateTime.tryParse(startTimeStr);
+              _startDurationTimer();
+            }
+
+            totalDistance.value = distance;
+            totalFare.value = fare;
+            currentSpeed.value = speed * 3.6; // Convert m/s to km/h
+
+            final lat = (event['latitude'] as num?)?.toDouble();
+            final lng = (event['longitude'] as num?)?.toDouble();
+
+            developer.log("📍 Parsed Location -> lat: $lat, lng: $lng");
+
+            if (lat != null && lng != null) {
+              final current = LatLng(lat, lng);
+
+              // ✅ OPTIMIZATION: Skip UI/Map updates if not moving and not tracking
+              if (speed < 0.5 && !isTracking.value) {
+                return;
+              }
+
+              developer.log("📍 Location Update -> lat: $lat, lng: $lng, speed: $speed");
+
+              if (!Get.isRegistered<DashboardMapController>()) {
+                return;
+              }
+
+              final mapCtrl = Get.find<DashboardMapController>();
+
+              double rotation = 0;
+
+              if (_lastPosition != null) {
+                rotation = _getBearing(_lastPosition!, current);
+                currentBearing.value = rotation;
+                developer.log("🧭 Bearing: $rotation");
+              }
+
+              _lastPosition = current;
+
+              developer.log("🚀 Updating Map...");
+
+              mapCtrl.updateCamera(current, bearing: rotation);
+              mapCtrl.updateRoute(current);
+              mapCtrl.updateBikeMarker(current, rotation: rotation);
+            } else {
+              developer.log("⚠️ Lat/Lng is NULL");
+            }
+          } else {
+            developer.log("❌ Event is NULL");
+          }
+        });
+  }
+
+  void _startDurationTimer() {
+    if (_durationTimer != null && _durationTimer!.isActive) return;
+    
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_startTime != null) {
+        final diff = DateTime.now().difference(_startTime!);
+        final h = diff.inHours.toString().padLeft(2, '0');
+        final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
+        final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
+        tripDuration.value = "$h:$m:$s";
+      } else {
+        tripDuration.value = "00:00:00";
       }
     });
   }
@@ -52,19 +167,25 @@ class TrackingController extends GetxController {
       return;
     }
 
+    final now = DateTime.now();
     final newLog = GpsLog()
-      ..startTime = DateTime.now()
+      ..startTime = now
       ..vehicleId = selectedVehicle.value!.id
-      ..rateApplied = selectedVehicle.value!.ratePerKm;
+      ..rateApplied = selectedVehicle.value!.ratePerKm
+      ..points = []
+      ..stays = [];
 
-    await _db.isar.writeTxn(() async {
-      await _db.isar.collection<GpsLog>().put(newLog);
-    });
+    final logId = await _db.saveLog(newLog);
 
     final service = FlutterBackgroundService();
     await service.startService();
-    service.invoke('startTracking', {'logId': newLog.id});
-    
+    service.invoke('startTracking', {'logId': logId});
+
+    _startTime = now;
+    _startDurationTimer();
+
+    totalDistance.value = 0.0;
+    totalFare.value = 0.0;
     isTracking.value = true;
   }
 
@@ -72,13 +193,18 @@ class TrackingController extends GetxController {
     final service = FlutterBackgroundService();
     service.invoke('stopTracking');
     isTracking.value = false;
-    
+    _durationTimer?.cancel();
+    _startTime = null;
+    tripDuration.value = "00:00:00";
+
     Get.snackbar("Success", "Trip saved successfully");
   }
 
   @override
   void onClose() {
     _serviceSubscription?.cancel();
+    _activitySubscription?.cancel();
+    _durationTimer?.cancel();
     super.onClose();
   }
 }
