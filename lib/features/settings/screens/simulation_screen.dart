@@ -146,12 +146,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
   Widget _buildTeleportControls() {
     final home = _db.getWorkLocation('Home');
     final office = _db.getWorkLocation('Office');
+    final petrol = _db.getWorkLocation('Petrol Pump');
 
     return Column(
       children: [
-        _buildJumpTile('Simulate Home (Inside Geofence)', home?.latitude ?? 25.5788, home?.longitude ?? 91.8933, Icons.home),
+        _buildJumpTile('Simulate Home', home?.latitude ?? 25.5788, home?.longitude ?? 91.8933, Icons.home),
         const SizedBox(height: 8),
-        _buildJumpTile('Simulate Office (Inside Geofence)', office?.latitude ?? 25.5788, office?.longitude ?? 91.8933, Icons.business),
+        _buildJumpTile('Simulate Office', office?.latitude ?? 25.5788, office?.longitude ?? 91.8933, Icons.business),
+        const SizedBox(height: 8),
+        _buildJumpTile('Simulate Petrol Pump', petrol?.latitude ?? 25.5900, petrol?.longitude ?? 91.9100, Icons.local_gas_station),
         const SizedBox(height: 8),
         _buildJumpTile('Simulate Highway (Outside)', 25.6100, 91.9300, Icons.add_road),
       ],

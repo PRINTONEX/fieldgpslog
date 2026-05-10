@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,7 +14,7 @@ class LogService {
         await Hive.openBox(logBoxName);
       }
     } catch (e) {
-      print("Error initializing LogService: $e");
+      debugPrint("Error initializing LogService: $e");
     }
   }
 
@@ -21,7 +22,7 @@ class LogService {
     try {
       if (!Hive.isBoxOpen(logBoxName)) {
         // If box is not open, we can't log to Hive yet
-        print('${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())} [$level] (Buffer) $message');
+        debugPrint('${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())} [$level] (Buffer) $message');
         return;
       }
       
@@ -30,14 +31,14 @@ class LogService {
       final logEntry = '${DateFormat('yyyy-MM-dd HH:mm:ss').format(timestamp)} [$level] $message';
       
       await box.add(logEntry);
-      print(logEntry);
+      debugPrint(logEntry);
 
       // Keep only last 1000 logs
       if (box.length > 1000) {
         await box.deleteAt(0);
       }
     } catch (e) {
-      print("Failed to write to debug log: $e");
+      debugPrint("Failed to write to debug log: $e");
     }
   }
 

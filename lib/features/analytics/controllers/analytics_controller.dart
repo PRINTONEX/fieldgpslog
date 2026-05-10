@@ -3,13 +3,17 @@ import 'package:get/get.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 
 import '../../../models/delivery_analytics.dart';
+import '../../../models/activity_log.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/expense_service.dart';
+import '../../../services/database_service.dart';
 
 class AnalyticsController extends GetxController {
 
   final AnalyticsService _analyticsService =
   Get.find<AnalyticsService>();
+
+  final DatabaseService _db = Get.find<DatabaseService>();
 
   final ExpenseService _expenseService = Get.isRegistered<ExpenseService>() 
       ? Get.find<ExpenseService>() 
@@ -25,6 +29,9 @@ class AnalyticsController extends GetxController {
 
   final RxList<DeliveryStop> deliveryStops =
       <DeliveryStop>[].obs;
+
+  final RxList<ActivityLog> activityLogs =
+      <ActivityLog>[].obs;
 
   // ================= SETTINGS =================
 
@@ -106,6 +113,10 @@ class AnalyticsController extends GetxController {
         fuelPricePerLiter:
         fuelPricePerLiter.value,
       );
+
+      // Load activity logs (Left Home, Reached Office, etc.)
+      activityLogs.value = _db.getActivityLogsForDate(normalized);
+      activityLogs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
       if (summary != null) {
 

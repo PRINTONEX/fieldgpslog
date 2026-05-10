@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:get/get.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:activity_recognition_flutter/activity_recognition_flutter.dart';
 import '../../../services/database_service.dart';
 import '../../../models/gps_log.dart';
 import '../../../models/vehicle.dart';
@@ -21,6 +20,7 @@ class TrackingController extends GetxController {
   var currentBearing = 0.0.obs;
   var currentActivity = "STILL".obs;
   var tripDuration = "00:00:00".obs;
+  var trackingStatus = "Monitoring...".obs;
   var selectedVehicle = Rxn<Vehicle>();
   LatLng? _lastPosition;
   StreamSubscription? _serviceSubscription;
@@ -99,6 +99,11 @@ class TrackingController extends GetxController {
             totalDistance.value = distance;
             totalFare.value = fare;
             currentSpeed.value = speed * 3.6; // Convert m/s to km/h
+            
+            final status = event['status'] as String?;
+            if (status != null) {
+              trackingStatus.value = status;
+            }
 
             final lat = (event['latitude'] as num?)?.toDouble();
             final lng = (event['longitude'] as num?)?.toDouble();

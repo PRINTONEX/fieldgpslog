@@ -8,7 +8,7 @@ part of 'delivery_proof.dart';
 
 class DeliveryProofAdapter extends TypeAdapter<DeliveryProof> {
   @override
-  final int typeId = 6;
+  final int typeId = 9;
 
   @override
   DeliveryProof read(BinaryReader reader) {

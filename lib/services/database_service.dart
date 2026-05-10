@@ -4,6 +4,7 @@ import '../models/gps_log.dart';
 import '../models/work_location.dart';
 import '../models/expense_log.dart';
 import '../models/delivery_proof.dart';
+import '../models/activity_log.dart';
 
 class DatabaseService {
   static const String vehicleBoxName = 'vehicles';
@@ -11,12 +12,14 @@ class DatabaseService {
   static const String workLocationBoxName = 'work_locations';
   static const String expenseBoxName = 'expenses';
   static const String proofBoxName = 'proofs';
+  static const String activityLogBoxName = 'activity_logs';
 
   Box<Vehicle>? _vehicleBox;
   Box<GpsLog>? _gpsLogBox;
   Box<WorkLocation>? _workLocationBox;
   Box<ExpenseLog>? _expenseBox;
   Box<DeliveryProof>? _proofBox;
+  Box<ActivityLog>? _activityLogBox;
 
   Future<void> init() async {
     await initHive();
@@ -38,11 +41,14 @@ class DatabaseService {
     if (!Hive.isAdapterRegistered(3)) {
       Hive.registerAdapter(StayPointAdapter());
     }
-    if (!Hive.isAdapterRegistered(5)) {
+    if (!Hive.isAdapterRegistered(8)) {
       Hive.registerAdapter(ExpenseLogAdapter());
     }
-    if (!Hive.isAdapterRegistered(6)) {
+    if (!Hive.isAdapterRegistered(9)) {
       Hive.registerAdapter(DeliveryProofAdapter());
+    }
+    if (!Hive.isAdapterRegistered(10)) {
+      Hive.registerAdapter(ActivityLogAdapter());
     }
     if (!Hive.isAdapterRegistered(7)) {
       Hive.registerAdapter(WorkLocationAdapter());
@@ -69,6 +75,36 @@ class DatabaseService {
     _proofBox = Hive.isBoxOpen(proofBoxName)
         ? Hive.box<DeliveryProof>(proofBoxName)
         : await Hive.openBox<DeliveryProof>(proofBoxName);
+
+    _activityLogBox = Hive.isBoxOpen(activityLogBoxName)
+        ? Hive.box<ActivityLog>(activityLogBoxName)
+        : await Hive.openBox<ActivityLog>(activityLogBoxName);
+  }
+
+  Box<ActivityLog> get activityLogBox {
+    final box = _activityLogBox;
+    if (box == null || !box.isOpen) {
+      throw StateError('Activity log box has not been opened.');
+    }
+    return box;
+  }
+
+  Future<void> logActivity(String event, {double? lat, double? lng, String? note}) async {
+    final log = ActivityLog()
+      ..timestamp = DateTime.now()
+      ..event = event
+      ..latitude = lat
+      ..longitude = lng
+      ..note = note;
+    await activityLogBox.add(log);
+  }
+
+  List<ActivityLog> getActivityLogsForDate(DateTime date) {
+    return activityLogBox.values.where((log) {
+      return log.timestamp.year == date.year &&
+          log.timestamp.month == date.month &&
+          log.timestamp.day == date.day;
+    }).toList();
   }
 
   Box<Vehicle> get vehicleBox {

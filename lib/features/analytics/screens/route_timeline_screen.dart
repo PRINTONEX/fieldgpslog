@@ -120,11 +120,11 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(_isMapExpanded ? 0 : 24),
                     border: Border.all(color: borderColor.withValues(alpha: 0.2)),
-                    boxShadow: [
+                    boxShadow: const [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.05),
+                        color: Colors.black26,
                         blurRadius: 12,
-                        offset: const Offset(0, 4),
+                        offset: Offset(0, 4),
                       ),
                     ],
                   ),
@@ -283,17 +283,6 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
       myLocationEnabled: false,
       mapToolbarEnabled: _isMapExpanded,
     );
-  }
-
-  Widget _buildTimeline(
-    DailyTravelSummary summary,
-    Color? subTextColor,
-    Color borderColor,
-    Color cardColor,
-    bool isDark,
-  ) {
-    // This method is now replaced by ListView.builder in build()
-    return const SizedBox.shrink();
   }
 
   Widget _buildTimelineItem({

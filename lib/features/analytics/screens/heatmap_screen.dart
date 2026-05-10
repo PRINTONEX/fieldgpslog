@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../services/database_service.dart';
-import '../../../models/gps_log.dart';
 
 class HeatmapScreen extends StatefulWidget {
   const HeatmapScreen({super.key});
@@ -14,7 +13,6 @@ class HeatmapScreen extends StatefulWidget {
 class _HeatmapScreenState extends State<HeatmapScreen> {
   final DatabaseService _db = Get.find<DatabaseService>();
   final RxSet<Circle> _heatmapCircles = <Circle>{}.obs;
-  GoogleMapController? _mapController;
   final RxBool _isLoading = true.obs;
 
   @override
@@ -49,7 +47,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         }
       }
       
-      _heatmapCircles.value = circles;
+      _heatmapCircles.assignAll(circles);
     } catch (e) {
       debugPrint("Error generating heatmap: $e");
     } finally {
@@ -76,7 +74,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
             zoom: 12,
           ),
           circles: _heatmapCircles,
-          onMapCreated: (controller) => _mapController = controller,
+          onMapCreated: (controller) {},
           myLocationEnabled: true,
         );
       }),

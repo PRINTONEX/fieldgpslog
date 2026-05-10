@@ -2,7 +2,7 @@ import 'package:hive/hive.dart';
 
 part 'delivery_proof.g.dart';
 
-@HiveType(typeId: 6)
+@HiveType(typeId: 9)
 class DeliveryProof extends HiveObject {
   @HiveField(0)
   late DateTime timestamp;

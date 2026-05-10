@@ -2,7 +2,7 @@ import 'package:hive/hive.dart';
 
 part 'expense_log.g.dart';
 
-@HiveType(typeId: 5)
+@HiveType(typeId: 8)
 class ExpenseLog extends HiveObject {
   @HiveField(0)
   late DateTime date;

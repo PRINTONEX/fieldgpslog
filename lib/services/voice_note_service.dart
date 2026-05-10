@@ -39,8 +39,10 @@ class VoiceNoteService extends GetxService {
       },
       listenFor: const Duration(seconds: 10),
       pauseFor: const Duration(seconds: 3),
-      cancelOnError: true,
-      partialResults: true,
+      listenOptions: SpeechListenOptions(
+        cancelOnError: true,
+        partialResults: true,
+      ),
     );
   }
 
