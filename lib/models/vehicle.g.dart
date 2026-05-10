@@ -19,7 +19,7 @@ class VehicleAdapter extends TypeAdapter<Vehicle> {
     return Vehicle()
       ..name = fields[0] as String
       ..ratePerKm = fields[1] as double
-      ..ratePerDelivery = fields[3] as double
+      ..ratePerDelivery = fields[3] as double?
       ..isDefault = fields[2] as bool;
   }
 
