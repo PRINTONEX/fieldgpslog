@@ -1,6 +1,8 @@
 import 'dart:ui';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../../../services/log_service.dart';
 
 class DashboardMapController extends GetxController {
   GoogleMapController? mapController;
@@ -14,6 +16,8 @@ class DashboardMapController extends GetxController {
 
   BitmapDescriptor? bikeIcon;
   BitmapDescriptor? navMarkerIcon;
+  LatLng? _lastBikePosition;
+  double _lastRotation = 0;
 
   // ✅ ADD THIS
   final Rx<LatLng> initialPosition = const LatLng(25.5788, 91.8933).obs;
@@ -22,10 +26,15 @@ class DashboardMapController extends GetxController {
   // ---------------- MAP ----------------
   void onMapCreated(GoogleMapController controller) {
     mapController = controller;
+    LogService.log("🗺️ Map Created and Controller bound.");
+    if (_lastBikePosition != null) {
+      updateBikeMarker(_lastBikePosition!, rotation: _lastRotation);
+    }
   }
 
   void toggleNavMode() {
     isNavMode.value = !isNavMode.value;
+    LogService.log("🧭 Nav Mode Toggled: ${isNavMode.value}");
     if (isNavMode.value) {
       _applyNavigationTheme();
     } else {
@@ -34,6 +43,10 @@ class DashboardMapController extends GetxController {
     // Refresh polylines to apply glow
     if (routePoints.isNotEmpty) {
       updateRoute(routePoints.last);
+    }
+    // Refresh marker to switch between bike and nav icon
+    if (_lastBikePosition != null) {
+      updateBikeMarker(_lastBikePosition!, rotation: _lastRotation);
     }
   }
 
@@ -62,16 +75,23 @@ class DashboardMapController extends GetxController {
     } else {
       currentMapType.value = MapType.normal;
     }
+    LogService.log("🗺️ Map Type changed to: ${currentMapType.value.name}");
   }
 
   // ✅ Set initial position (used for live location on app open)
   void setInitialPosition(LatLng position) {
     initialPosition.value = position;
+    _lastBikePosition = position;
+    LogService.log("📍 Initial Position set: ${position.latitude}, ${position.longitude}");
   }
 
-  // ✅ Set bike icon
+  // ✅ Set bike icon and refresh marker
   void setBikeIcon(BitmapDescriptor? icon) {
     bikeIcon = icon;
+    LogService.log("🛵 Bike Icon loaded into controller: ${icon != null ? 'SUCCESS' : 'NULL'}");
+    if (_lastBikePosition != null) {
+      updateBikeMarker(_lastBikePosition!, rotation: _lastRotation);
+    }
   }
 
   // ---------------- CAMERA ----------------
@@ -106,7 +126,7 @@ class DashboardMapController extends GetxController {
         ),
       );
     } catch (e) {
-      mapController = null; 
+      // Silence error
     }
   }
 
@@ -158,10 +178,17 @@ class DashboardMapController extends GetxController {
 
   // ✅ Professional Marker Update
   void updateBikeMarker(LatLng position, {double rotation = 0}) {
+    _lastBikePosition = position;
+    _lastRotation = rotation;
+
+    final BitmapDescriptor iconToUse = (isNavMode.value && navMarkerIcon != null) 
+        ? navMarkerIcon! 
+        : (bikeIcon ?? BitmapDescriptor.defaultMarker);
+
     final bikeMarker = Marker(
       markerId: const MarkerId("bike"),
       position: position,
-      icon: (isNavMode.value && navMarkerIcon != null) ? navMarkerIcon! : (bikeIcon ?? BitmapDescriptor.defaultMarker),
+      icon: iconToUse,
       rotation: rotation,
       anchor: const Offset(0.5, 0.5),
       flat: true,
@@ -170,6 +197,24 @@ class DashboardMapController extends GetxController {
 
     markers.removeWhere((m) => m.markerId.value == "bike");
     markers.add(bikeMarker);
+    
+    // Log for debugging
+    if (markers.length % 5 == 0 || markers.length == 1) {
+       LogService.log("🛵 Bike Marker updated at ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}. Icon: ${bikeIcon != null ? 'Custom' : 'Default'}. Total Markers: ${markers.length}");
+    }
+  }
+
+  // ✅ Jump to current position
+  Future<void> centerOnUser() async {
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      final loc = LatLng(position.latitude, position.longitude);
+      updateCamera(loc);
+      updateBikeMarker(loc);
+      LogService.log("🎯 Centered map on user: ${loc.latitude}, ${loc.longitude}");
+    } catch (e) {
+      LogService.log("⚠️ Could not center on user: $e");
+    }
   }
 
   @override

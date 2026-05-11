@@ -19,7 +19,11 @@
     <application
         android:label="Field GPS Log"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:fullBackupContent="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        tools:replace="android:allowBackup">
         
         <!-- Google Maps API Key -->
         <meta-data

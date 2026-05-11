@@ -1,17 +1,22 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:activity_recognition_flutter/activity_recognition_flutter.dart' as ar;
 import '../../../services/database_service.dart';
+import '../../../services/location_service.dart';
 import '../../../models/gps_log.dart';
 import '../../../models/vehicle.dart';
+import '../../analytics/controllers/analytics_controller.dart';
 import 'dart:developer' as developer;
 
 import '../../dashboard/controllers/dashboard_map_controller.dart';
 
 class TrackingController extends GetxController {
   final DatabaseService _db = Get.find<DatabaseService>();
+  final LocationService _locationService = LocationService();
 
   var isTracking = false.obs;
   var totalDistance = 0.0.obs;
@@ -33,6 +38,19 @@ class TrackingController extends GetxController {
     super.onInit();
     _loadDefaultVehicle();
     _listenToServiceUpdates();
+    _initUiActivityRecognition();
+  }
+
+  void _initUiActivityRecognition() {
+    try {
+      ar.ActivityRecognition().activityStream(runForegroundService: false).listen((event) {
+        final service = FlutterBackgroundService();
+        service.invoke('activityUpdate', {'type': event.type.name});
+        currentActivity.value = event.type.name.toUpperCase();
+      }, onError: (e) => developer.log("⚠️ UI Activity Recognition error: $e"));
+    } catch (e) {
+      developer.log("⚠️ UI Activity Recognition setup error: $e");
+    }
   }
 
   double _getBearing(LatLng start, LatLng end) {
@@ -83,6 +101,17 @@ class TrackingController extends GetxController {
           developer.log("📡 RAW EVENT: $event");
 
           if (event != null) {
+            // ✅ Sync tracking state
+            final serviceIsTracking = event['isTracking'] as bool? ?? false;
+            if (isTracking.value != serviceIsTracking) {
+              isTracking.value = serviceIsTracking;
+              if (isTracking.value) {
+                _startDurationTimer();
+              } else {
+                _durationTimer?.cancel();
+              }
+            }
+
             // ✅ SAFE conversion
             final distance =
                 (event['distance'] as num?)?.toDouble() ?? 0.0;
@@ -93,7 +122,9 @@ class TrackingController extends GetxController {
             final startTimeStr = event['startTime'] as String?;
             if (startTimeStr != null) {
               _startTime = DateTime.tryParse(startTimeStr);
-              _startDurationTimer();
+              if (isTracking.value) {
+                 _startDurationTimer();
+              }
             }
 
             totalDistance.value = distance;
@@ -113,8 +144,12 @@ class TrackingController extends GetxController {
             if (lat != null && lng != null) {
               final current = LatLng(lat, lng);
 
-              // ✅ OPTIMIZATION: Skip UI/Map updates if not moving and not tracking
-              if (speed < 0.5 && !isTracking.value) {
+              // Skip UI/Map updates if speed is extremely low and we aren't tracking
+              if (speed < 0.1 && !isTracking.value) {
+                // Log very occasionally
+                if (math.Random().nextInt(100) == 0) {
+                   developer.log("📍 UI Update skipped: Idle and not tracking");
+                }
                 return;
               }
 
@@ -126,9 +161,9 @@ class TrackingController extends GetxController {
 
               final mapCtrl = Get.find<DashboardMapController>();
 
-              double rotation = 0;
+              double rotation = currentBearing.value;
 
-              if (_lastPosition != null) {
+              if (_lastPosition != null && speed > 0.5) {
                 rotation = _getBearing(_lastPosition!, current);
                 currentBearing.value = rotation;
                 developer.log("🧭 Bearing: $rotation");
@@ -138,8 +173,10 @@ class TrackingController extends GetxController {
 
               developer.log("🚀 Updating Map...");
 
-              mapCtrl.updateCamera(current, bearing: rotation);
-              mapCtrl.updateRoute(current);
+              mapCtrl.updateCamera(current, bearing: rotation, speedKmh: currentSpeed.value);
+              if (isTracking.value) {
+                mapCtrl.updateRoute(current);
+              }
               mapCtrl.updateBikeMarker(current, rotation: rotation);
             } else {
               developer.log("⚠️ Lat/Lng is NULL");
@@ -148,6 +185,13 @@ class TrackingController extends GetxController {
             developer.log("❌ Event is NULL");
           }
         });
+
+    service.on('stopped').listen((event) {
+      developer.log("📡 Service signaled STOPPED");
+      if (Get.isRegistered<AnalyticsController>()) {
+        Get.find<AnalyticsController>().loadAnalyticsForDate(DateTime.now());
+      }
+    });
   }
 
   void _startDurationTimer() {
@@ -172,6 +216,13 @@ class TrackingController extends GetxController {
       return;
     }
 
+    // ✅ Permission Check
+    final hasPermission = await _locationService.handlePermission();
+    if (!hasPermission) {
+      Get.snackbar("Permission Denied", "Please grant all required permissions to start tracking.");
+      return;
+    }
+
     final now = DateTime.now();
     final newLog = GpsLog()
       ..startTime = now
@@ -181,9 +232,14 @@ class TrackingController extends GetxController {
       ..stays = [];
 
     final logId = await _db.saveLog(newLog);
+    developer.log("🆕 New trip saved with ID: $logId");
 
     final service = FlutterBackgroundService();
-    await service.startService();
+    bool isRunning = await service.isRunning();
+    if (!isRunning) {
+      await service.startService();
+    }
+    
     service.invoke('startTracking', {'logId': logId});
 
     _startTime = now;
@@ -192,6 +248,21 @@ class TrackingController extends GetxController {
     totalDistance.value = 0.0;
     totalFare.value = 0.0;
     isTracking.value = true;
+    
+    // Clear old route on map
+    if (Get.isRegistered<DashboardMapController>()) {
+      Get.find<DashboardMapController>().routePoints.clear();
+      Get.find<DashboardMapController>().polylines.clear();
+    }
+    
+    // Delay UI feedback slightly to avoid map rendering race conditions during service start
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (Get.context != null) {
+        ScaffoldMessenger.of(Get.context!).showSnackBar(
+          SnackBar(content: Text("Tracking Started"), duration: Duration(seconds: 2)),
+        );
+      }
+    });
   }
 
   Future<void> stopTracking() async {
@@ -202,7 +273,18 @@ class TrackingController extends GetxController {
     _startTime = null;
     tripDuration.value = "00:00:00";
 
-    Get.snackbar("Success", "Trip saved successfully");
+    // Refresh Analytics
+    if (Get.isRegistered<AnalyticsController>()) {
+      Get.find<AnalyticsController>().loadAnalyticsForDate(DateTime.now());
+    }
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (Get.context != null) {
+        ScaffoldMessenger.of(Get.context!).showSnackBar(
+          SnackBar(content: Text("Tracking Stopped. Trip saved."), duration: Duration(seconds: 2)),
+        );
+      }
+    });
   }
 
   @override
@@ -213,3 +295,4 @@ class TrackingController extends GetxController {
     super.onClose();
   }
 }
+

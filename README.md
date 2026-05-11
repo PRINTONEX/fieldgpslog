@@ -51,11 +51,7 @@ Field GPS Log is a commercial-grade Flutter application designed for delivery pr
    dart run build_runner build --delete-conflicting-outputs
    ```
 5. Launch the app: `flutter run`.
-
-## 🧪 Simulation Mode
-For developers and testers, the app includes a **Manual Simulation** mode (Settings > Manual Simulation). You can "teleport" the app's location on a map or simulate driving routes at custom speeds to verify tracking logic and geofencing without leaving your desk.
-
-## 📜 Export & Reporting
+## 🛠 Tech Stack
 Generate professional PDF reports of your daily journeys, including stop times, total distance, expenses, and profit summaries, ready for sharing or record-keeping.
 
 ---

@@ -38,7 +38,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    loadIcons();
     
     trackingCtrl = Get.isRegistered<TrackingController>()
         ? Get.find<TrackingController>()
@@ -53,52 +52,55 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         : Get.put(AnalyticsController());
 
     locationService = LocationService();
-    _initializeLiveLocation();
+    
+    _initializeUI();
     
     analyticsCtrl.loadAnalyticsForDate(DateTime.now());
   }
 
-  void _initializeLiveLocation() async {
+  Future<void> _initializeUI() async {
+    await loadIcons();
+    await _setInitialMapPosition();
+  }
+
+  Future<void> _setInitialMapPosition() async {
     try {
       final hasPermission = await locationService.handlePermission();
-      if (hasPermission) {
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-
-        final currentLocation = LatLng(position.latitude, position.longitude);
-        mapCtrl.setInitialPosition(currentLocation);
-        mapCtrl.updateCamera(currentLocation);
-        mapCtrl.updateBikeMarker(currentLocation); // ✅ Always show marker on startup
-
-        locationService.startTracking((position) {
-          final liveLocation = LatLng(position.latitude, position.longitude);
-          final double speed = position.speed * 3.6; // m/s to km/h
-          mapCtrl.updateCamera(liveLocation, bearing: position.heading, speedKmh: speed);
-          mapCtrl.updateBikeMarker(liveLocation, rotation: position.heading); // ✅ Always update marker even if idle
-        });
+      if (!hasPermission) {
+        LogService.log("⚠️ No location permission for initial position");
+        return;
       }
+
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final loc = LatLng(position.latitude, position.longitude);
+      mapCtrl.setInitialPosition(loc);
+      mapCtrl.updateCamera(loc);
+      mapCtrl.updateBikeMarker(loc);
+      LogService.log("📍 Initial map position found: ${loc.latitude}, ${loc.longitude}");
     } catch (e) {
-      debugPrint('Error initializing live location: $e');
+      debugPrint("Error setting initial map position: $e");
     }
   }
 
   Future<void> loadIcons() async {
-    bikeIcon = await bitmapFromURL(
-      "https://img.icons8.com/color/96/motorcycle.png",
-      targetWidth: 48,
-    );
-    navMarkerIcon = await bitmapFromURL(
-      "https://img.icons8.com/color/96/navigation.png",
-      targetWidth: 40,
-    );
-    mapCtrl.setBikeIcon(bikeIcon);
-    mapCtrl.navMarkerIcon = navMarkerIcon;
+    try {
+      bikeIcon = await bitmapFromURL(
+        "https://img.icons8.com/color/96/motorcycle.png",
+        targetWidth: 48,
+      );
+      navMarkerIcon = await bitmapFromURL(
+        "https://img.icons8.com/color/96/navigation.png",
+        targetWidth: 40,
+      );
+      mapCtrl.setBikeIcon(bikeIcon);
+      mapCtrl.navMarkerIcon = navMarkerIcon;
+    } catch (e) {
+      debugPrint("Error loading icons: $e");
+    }
   }
 
   @override
   void dispose() {
-    locationService.stopTracking();
     _tabController.dispose();
     super.dispose();
   }
@@ -177,7 +179,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                 backgroundColor: Colors.grey.withValues(alpha: 0.15),
                 child: IconButton(
                   icon: const Icon(Icons.bug_report_outlined),
-                  onPressed: () => _showDebugLog(),
+                  onPressed: () => Get.toNamed('/debug'),
                   color: Colors.orangeAccent,
                 ),
               ),
@@ -194,57 +196,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           ),
         ),
       ),
-    );
-  }
-
-  void _showDebugLog() {
-    Get.bottomSheet(
-      Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Debug Logs', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                Row(
-                  children: [
-                    IconButton(icon: const Icon(Icons.share), onPressed: () => LogService.exportLogs()),
-                    IconButton(icon: const Icon(Icons.delete_outline), onPressed: () {
-                      LogService.clearLogs();
-                      Get.back();
-                    }),
-                  ],
-                ),
-              ],
-            ),
-            const Divider(),
-            Expanded(
-              child: FutureBuilder<List<String>>(
-                future: Future.value(LogService.getLogs()),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final logs = snapshot.data!;
-                  return ListView.builder(
-                    itemCount: logs.length,
-                    itemBuilder: (context, index) => Text(
-                      logs[index],
-                      style: const TextStyle(fontSize: 10, fontFamily: 'monospace'),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-      isScrollControlled: true,
     );
   }
 
@@ -275,7 +226,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
             mapToolbarEnabled: false,
             markers: markers,
             polylines: polylines,
-            padding: const EdgeInsets.only(top: 120, bottom: 200), // Padding for UI overlay
+            padding: const EdgeInsets.only(top: 100, bottom: 120), // ✅ Reduced padding for better visibility
           );
         }),
         
@@ -296,6 +247,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _buildMyLocationButton(),
+              const SizedBox(height: 12),
               _buildNavModeButton(),
               const SizedBox(height: 12),
               _buildMapTypeButton(),
@@ -336,6 +289,15 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         color: mapCtrl.isNavMode.value ? Colors.black : Colors.blueGrey[800],
       ),
     ));
+  }
+
+  Widget _buildMyLocationButton() {
+    return FloatingActionButton.small(
+      heroTag: 'my_location',
+      onPressed: () => mapCtrl.centerOnUser(),
+      backgroundColor: Colors.white,
+      child: Icon(Icons.my_location_rounded, color: Colors.blueGrey[800]),
+    );
   }
 
   Widget _buildNavigationHUD() {

@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 allprojects {
     repositories {
         google()
@@ -16,16 +19,24 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 
-// Keep legacy Android plugins compatible with AGP namespace requirements.
+// Global configuration for all subprojects (app and all plugins)
 subprojects {
-    if (project.name != "app") {
-        afterEvaluate {
-            if (project.extensions.findByName("android") != null) {
-                val android = project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
-                if (android.namespace == null) {
-                    android.namespace = "com.fieldgpslog.${project.name.replace("-", "_")}"
-                }
+    afterEvaluate {
+        // Force JVM 17 for Java tasks
+        if (project.extensions.findByName("android") != null) {
+            val android = project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
+            android.compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_17
+                targetCompatibility = JavaVersion.VERSION_17
             }
+        }
+    }
+
+    // Force JVM 17 for Kotlin tasks using the modern compilerOptions DSL
+    // This resolves the "Inconsistent JVM target" and "kotlinOptions is an error" failure
+    tasks.withType<KotlinCompile>().configureEach {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
         }
     }
 }

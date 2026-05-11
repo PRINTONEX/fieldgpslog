@@ -12,6 +12,7 @@ class LocationService {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
+      // ✅ Request to enable GPS
       return false;
     }
 
@@ -27,8 +28,22 @@ class LocationService {
       return false;
     }
 
-    // ✅ Request Activity Recognition Permission
+    // ✅ Request Background Location Permission (Android 10+)
     if (Platform.isAndroid) {
+      final backgroundStatus = await Permission.locationAlways.request();
+      if (backgroundStatus.isDenied) {
+        // We can still track in foreground, but background might be limited
+        // However, for this app, background is critical.
+        // Let's not fail, but log it.
+      }
+
+      // ✅ Request Notification Permission (Android 13+)
+      final notificationStatus = await Permission.notification.request();
+      if (notificationStatus.isDenied) {
+        // Notifications are needed for foreground service
+      }
+
+      // ✅ Request Activity Recognition Permission
       final activityStatus = await Permission.activityRecognition.request();
       if (activityStatus.isDenied) {
         return false;

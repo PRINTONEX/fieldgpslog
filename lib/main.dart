@@ -1,13 +1,16 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'package:google_maps_flutter_android/google_maps_flutter_android.dart';
+import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+import 'package:path_provider/path_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
-import 'features/dashboard/screens/splash_screen.dart';
 import 'features/vehicles/screens/vehicle_list_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
-import 'features/settings/screens/simulation_screen.dart';
 import 'features/analytics/screens/heatmap_screen.dart';
+import 'features/debug/screens/debug_screen.dart';
+import 'features/analytics/screens/daily_travel_summary_screen.dart';
 import 'services/database_service.dart';
 import 'services/background_service.dart';
 import 'services/analytics_service.dart';
@@ -15,8 +18,23 @@ import 'services/log_service.dart';
 import 'features/vehicles/controllers/vehicle_controller.dart';
 
 void main() async {
-  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ Fix: SIGABRT 'Image is already closed' on Android (Samsungs)
+  final GoogleMapsFlutterPlatform mapsImplementation = GoogleMapsFlutterPlatform.instance;
+  if (mapsImplementation is GoogleMapsFlutterAndroid) {
+    mapsImplementation.useAndroidViewSurface = true;
+  }
+
+  // Diagnostic: Print app paths to debug data loss
+  if (Platform.isAndroid) {
+    getApplicationDocumentsDirectory().then((dir) {
+      debugPrint('📦 App Documents Path: ${dir.path}');
+    });
+    getExternalStorageDirectory().then((dir) {
+      debugPrint('📂 External Storage Path: ${dir?.path}');
+    });
+  }
 
   final dbService = Get.put(DatabaseService(), permanent: true);
   await dbService.initHive();
@@ -48,14 +66,14 @@ class MyApp extends StatelessWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
-      initialRoute: '/splash',
+      initialRoute: '/',
       getPages: [
-        GetPage(name: '/splash', page: () => const SplashScreen()),
         GetPage(name: '/', page: () => const DashboardScreen()),
         GetPage(name: '/vehicles', page: () => const VehicleListScreen()),
         GetPage(name: '/settings', page: () => const SettingsScreen()),
-        GetPage(name: '/simulation', page: () => const SimulationScreen()),
         GetPage(name: '/heatmap', page: () => const HeatmapScreen()),
+        GetPage(name: '/debug', page: () => const DebugScreen()),
+        GetPage(name: '/analytics', page: () => const DailyTravelSummaryScreen()),
       ],
     );
   }

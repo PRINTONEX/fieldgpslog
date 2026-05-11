@@ -53,13 +53,6 @@ class SettingsScreen extends StatelessWidget {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.rocket_launch_outlined),
-            title: const Text('Manual Simulation'),
-            subtitle: const Text('Test tracking without driving'),
-            onTap: () => Get.toNamed('/simulation'),
-          ),
-          const Divider(),
-          ListTile(
             leading: const Icon(Icons.api),
             title: const Text('Google Maps API'),
             subtitle: const Text('Configure your API Key'),

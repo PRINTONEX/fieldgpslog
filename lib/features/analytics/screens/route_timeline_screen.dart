@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -12,61 +14,183 @@ class RouteTimelineScreen extends StatefulWidget {
   State<RouteTimelineScreen> createState() => _RouteTimelineScreenState();
 }
 
-class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
+class _RouteTimelineScreenState extends State<RouteTimelineScreen>
+    with TickerProviderStateMixin {
   late final AnalyticsController analyticsCtrl;
-  GoogleMapController? _mapController;
-  final ScrollController _scrollController = ScrollController();
-  bool _isMapExpanded = false;
+  final Completer<GoogleMapController> _mapController = Completer();
+
+  // Animation & State variables
+  int _selectedStopIndex = -1;
+  bool _isPlaying = false;
+  bool _followBike = true;
+  double _playbackSpeed = 1.0;
+  LatLng? _movingBikePosition;
+  double _bikeRotation = 0.0;
+  
+  AnimationController? _movementController;
+  final ScrollController _timelineScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     analyticsCtrl = Get.find<AnalyticsController>();
+    
+    // Auto-start animation after a short delay
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) _startBikeAnimation();
+      });
+    });
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _movementController?.dispose();
+    _timelineScrollController.dispose();
     super.dispose();
   }
 
-  void _onStopSelected(int index, LatLng position) {
-    _mapController?.animateCamera(
+  // =========================================================
+  // HELPER METHODS
+  // =========================================================
+
+  LatLng interpolate(LatLng start, LatLng end, double t) {
+    return LatLng(
+      start.latitude + (end.latitude - start.latitude) * t,
+      start.longitude + (end.longitude - start.longitude) * t,
+    );
+  }
+
+  double calculateBearing(LatLng start, LatLng end) {
+    double lat1 = start.latitude * math.pi / 180;
+    double lon1 = start.longitude * math.pi / 180;
+    double lat2 = end.latitude * math.pi / 180;
+    double lon2 = end.longitude * math.pi / 180;
+
+    double dLon = lon2 - lon1;
+
+    double y = math.sin(dLon) * math.cos(lat2);
+    double x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+
+    double radians = math.atan2(y, x);
+    return (radians * 180 / math.pi + 360) % 360;
+  }
+
+  Future<void> focusStop(DeliveryStop stop, int index) async {
+    setState(() {
+      _selectedStopIndex = index;
+    });
+
+    final GoogleMapController controller = await _mapController.future;
+    await controller.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(target: position, zoom: 16),
+        CameraPosition(
+          target: LatLng(stop.latitude, stop.longitude),
+          zoom: 17,
+          tilt: 45,
+          bearing: 45,
+        ),
       ),
     );
-    if (_isMapExpanded) {
-      setState(() {
-        _isMapExpanded = false;
-      });
+    
+    // Scroll timeline to this item
+    _scrollToTimelineItem(index);
+  }
+
+  void _scrollToTimelineItem(int index) {
+    if (_timelineScrollController.hasClients) {
+      _timelineScrollController.animateTo(
+        index * 200.0, // Approximate height of item
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
     }
   }
 
-  void _scrollToIndex(int index) {
-    final double targetOffset = index * 200.0; // Estimate height per item
-    _scrollController.animateTo(
-      targetOffset,
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOut,
-    );
+  Future<void> _startBikeAnimation() async {
+    final summary = analyticsCtrl.dailySummary.value;
+    if (summary == null || summary.stops.length < 2 || _isPlaying) return;
+
+    setState(() {
+      _isPlaying = true;
+      _selectedStopIndex = 0;
+    });
+
+    final stops = summary.stops;
+
+    for (int i = 0; i < stops.length - 1; i++) {
+      if (!_isPlaying) break;
+
+      final start = LatLng(stops[i].latitude, stops[i].longitude);
+      final end = LatLng(stops[i + 1].latitude, stops[i + 1].longitude);
+
+      setState(() {
+        _selectedStopIndex = i;
+        _bikeRotation = calculateBearing(start, end);
+      });
+
+      // Pause at delivery stop (Blinkit/Uber style)
+      await Future.delayed(Duration(milliseconds: (1500 / _playbackSpeed).round()));
+      
+      _movementController?.dispose();
+      _movementController = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: (3000 / _playbackSpeed).round()),
+      );
+
+      final animation = Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(parent: _movementController!, curve: Curves.linear),
+      );
+
+      animation.addListener(() async {
+        if (!mounted) return;
+        final pos = interpolate(start, end, animation.value);
+        setState(() {
+          _movingBikePosition = pos;
+        });
+
+        if (_followBike) {
+          final GoogleMapController controller = await _mapController.future;
+          controller.moveCamera(CameraUpdate.newLatLng(pos));
+        }
+      });
+
+      await _movementController!.forward();
+    }
+
+    setState(() {
+      _isPlaying = false;
+      _selectedStopIndex = stops.length - 1;
+      _movingBikePosition = null;
+    });
+  }
+
+  void _togglePlayback() {
+    if (_isPlaying) {
+      _movementController?.stop();
+      setState(() => _isPlaying = false);
+    } else {
+      _startBikeAnimation();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = Theme.of(context).scaffoldBackgroundColor;
-    final cardColor = Theme.of(context).cardColor;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final textColor = Theme.of(context).textTheme.bodyLarge?.color;
-    final subTextColor = Theme.of(context).textTheme.bodyMedium?.color;
-    final borderColor = Theme.of(context).dividerColor;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final bgColor = theme.scaffoldBackgroundColor;
+    final cardColor = theme.cardColor;
+    final primaryColor = theme.colorScheme.primary;
+    final textColor = theme.textTheme.bodyLarge?.color;
+    final subTextColor = theme.textTheme.bodyMedium?.color;
+    final borderColor = theme.dividerColor;
 
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
         title: const Text(
-          'Route Timeline',
+          'Route Replay',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -76,13 +200,10 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
         surfaceTintColor: Colors.transparent,
         actions: [
           IconButton(
-            icon: Icon(_isMapExpanded ? Icons.close_fullscreen_rounded : Icons.open_in_full_rounded),
-            onPressed: () {
-              setState(() {
-                _isMapExpanded = !_isMapExpanded;
-              });
-            },
-          )
+            icon: Icon(_followBike ? Icons.videocam : Icons.videocam_off),
+            onPressed: () => setState(() => _followBike = !_followBike),
+            tooltip: 'Follow Vehicle',
+          ),
         ],
       ),
       body: Obx(() {
@@ -96,7 +217,7 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
                 Icon(
                   Icons.timeline_outlined,
                   size: 100,
-                  color: subTextColor?.withValues(alpha: 0.2) ?? borderColor,
+                  color: subTextColor?.withOpacity(0.3) ?? borderColor,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -112,136 +233,169 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
           children: [
             Column(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 400),
-                  curve: Curves.easeInOut,
-                  height: _isMapExpanded ? MediaQuery.of(context).size.height - 100 : 280,
-                  margin: _isMapExpanded ? EdgeInsets.zero : const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(_isMapExpanded ? 0 : 24),
-                    border: Border.all(color: borderColor.withValues(alpha: 0.2)),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 12,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(_isMapExpanded ? 0 : 24),
-                    child: _buildRouteMapPreview(summary, primaryColor),
-                  ),
-                ),
-                if (!_isMapExpanded)
-                  Expanded(
-                    child: ListView.builder(
-                      controller: _scrollController,
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                      itemCount: summary.stops.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == 0) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Text(
-                              'Journey Timeline',
-                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                            ),
-                          );
-                        }
-                        
-                        final stopIndex = index - 1;
-                        final stop = summary.stops[stopIndex];
-                        final isLast = stopIndex == summary.stops.length - 1;
-
-                        return GestureDetector(
-                          onTap: () => _onStopSelected(stopIndex, LatLng(stop.latitude, stop.longitude)),
-                          child: _buildTimelineItem(
-                            context: context,
-                            index: stopIndex,
-                            stop: stop,
-                            nextStop: !isLast ? summary.stops[stopIndex + 1] : null,
-                            isLast: isLast,
-                            subTextColor: subTextColor,
-                            borderColor: borderColor,
-                            cardColor: cardColor,
-                            isDark: isDark,
-                          ),
-                        );
-                      },
+                // ================= MAP CONTAINER =================
+                Expanded(
+                  flex: 3,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: borderColor.withOpacity(0.2)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(isDark ? 0.4 : 0.08),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: _buildInteractiveMap(summary, primaryColor, isDark),
                     ),
                   ),
-              ],
-            ),
-            if (_isMapExpanded)
-              Positioned(
-                bottom: 30,
-                left: 20,
-                right: 20,
-                child: Container(
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: cardColor.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(30),
-                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10)],
-                  ),
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    itemCount: summary.stops.length,
-                    itemBuilder: (context, index) {
-                      final stop = summary.stops[index];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 5),
-                        child: ActionChip(
-                          label: Text('Stop ${index + 1}'),
-                          onPressed: () => _onStopSelected(index, LatLng(stop.latitude, stop.longitude)),
-                          backgroundColor: primaryColor.withValues(alpha: 0.1),
-                        ),
-                      );
-                    },
+                ),
+
+                // ================= TIMELINE SECTION =================
+                Expanded(
+                  flex: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildTimeline(
+                      summary,
+                      textColor,
+                      subTextColor,
+                      borderColor,
+                      cardColor,
+                      isDark,
+                    ),
                   ),
                 ),
-              ),
+              ],
+            ),
+
+            // ================= CONTROLS OVERLAY =================
+            _buildPlaybackControls(isDark, cardColor, primaryColor),
           ],
         );
       }),
     );
   }
 
-  double getMarkerHue(String type) {
-    switch (type.toLowerCase()) {
-      case 'home':
-        return BitmapDescriptor.hueRed;
-      case 'office':
-        return BitmapDescriptor.hueGreen;
-      case 'rest':
-        return BitmapDescriptor.hueOrange;
-      default:
-        return BitmapDescriptor.hueBlue;
-    }
+  // =========================================================
+  // UI COMPONENTS
+  // =========================================================
+
+  Widget _buildPlaybackControls(bool isDark, Color cardColor, Color primaryColor) {
+    return Positioned(
+      bottom: 24,
+      right: 24,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Speed Control
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: cardColor.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(30),
+              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10)],
+            ),
+            child: Column(
+              children: [1.0, 2.0, 4.0].map((s) {
+                final isSelected = _playbackSpeed == s;
+                return GestureDetector(
+                  onTap: () => setState(() => _playbackSpeed = s),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isSelected ? primaryColor : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${s.toInt()}x',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? Colors.white : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Play/Pause
+          FloatingActionButton(
+            heroTag: 'play_pause',
+            onPressed: _togglePlayback,
+            backgroundColor: primaryColor,
+            child: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+          ),
+          const SizedBox(height: 12),
+          // Replay
+          FloatingActionButton.small(
+            heroTag: 'replay',
+            onPressed: () {
+              _movementController?.stop();
+              setState(() {
+                _isPlaying = false;
+                _movingBikePosition = null;
+              });
+              _startBikeAnimation();
+            },
+            backgroundColor: cardColor,
+            child: Icon(Icons.replay, color: primaryColor),
+          ),
+        ],
+      ),
+    );
   }
 
-  Widget _buildRouteMapPreview(DailyTravelSummary summary, Color primaryColor) {
+  Widget _buildInteractiveMap(DailyTravelSummary summary, Color primaryColor, bool isDark) {
     final stops = summary.stops;
     final markers = <Marker>{};
     final polylines = <Polyline>{};
 
     for (int i = 0; i < stops.length; i++) {
       final stop = stops[i];
-      final hue = getMarkerHue(stop.stopType);
+      final isSelected = i == _selectedStopIndex;
 
       markers.add(
         Marker(
           markerId: MarkerId('stop_$i'),
           position: LatLng(stop.latitude, stop.longitude),
+          onTap: () => focusStop(stop, i),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            stop.stopType == 'home' ? BitmapDescriptor.hueRed : 
+            stop.stopType == 'office' ? BitmapDescriptor.hueGreen : 
+            BitmapDescriptor.hueBlue
+          ),
+          alpha: isSelected ? 1.0 : 0.7,
           infoWindow: InfoWindow(
             title: '${stop.stopType.toUpperCase()} #${i + 1}',
-            snippet: stop.note ?? DateFormat('hh:mm a').format(stop.arrivalTime),
+            snippet: DateFormat('hh:mm a').format(stop.arrivalTime),
           ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(hue),
-          onTap: () => _scrollToIndex(i),
+        ),
+      );
+    }
+
+    // Moving Bike Marker
+    if (_movingBikePosition != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('moving_bike'),
+          position: _movingBikePosition!,
+          rotation: _bikeRotation,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          zIndex: 2,
         ),
       );
     }
@@ -249,39 +403,92 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
     final polylinePoints = stops.map((e) => LatLng(e.latitude, e.longitude)).toList();
 
     if (polylinePoints.length > 1) {
+      // Completed path
+      if (_selectedStopIndex > 0) {
+        polylines.add(
+          Polyline(
+            polylineId: const PolylineId('completed'),
+            points: polylinePoints.sublist(0, _selectedStopIndex + 1),
+            color: Colors.green,
+            width: 5,
+            geodesic: true,
+          ),
+        );
+      }
+      // Remaining path
       polylines.add(
         Polyline(
-          polylineId: const PolylineId('route'),
-          points: polylinePoints,
-          color: primaryColor,
+          polylineId: const PolylineId('upcoming'),
+          points: polylinePoints.sublist(_selectedStopIndex != -1 ? _selectedStopIndex : 0),
+          color: primaryColor.withOpacity(0.4),
           width: 5,
           geodesic: true,
+          patterns: [PatternItem.dash(20), PatternItem.gap(10)],
         ),
       );
     }
 
-    double minLat = stops[0].latitude;
-    double maxLat = stops[0].latitude;
-    double minLon = stops[0].longitude;
-    double maxLon = stops[0].longitude;
-
-    for (final stop in stops) {
-      if (stop.latitude < minLat) minLat = stop.latitude;
-      if (stop.latitude > maxLat) maxLat = stop.latitude;
-      if (stop.longitude < minLon) minLon = stop.longitude;
-      if (stop.longitude > maxLon) maxLon = stop.longitude;
-    }
-
-    final center = LatLng((minLat + maxLat) / 2, (minLon + maxLon) / 2);
-
     return GoogleMap(
-      initialCameraPosition: CameraPosition(target: center, zoom: 12),
-      onMapCreated: (controller) => _mapController = controller,
+      initialCameraPosition: CameraPosition(
+        target: LatLng(stops[0].latitude, stops[0].longitude),
+        zoom: 14,
+      ),
       markers: markers,
       polylines: polylines,
-      zoomControlsEnabled: _isMapExpanded,
+      zoomControlsEnabled: false,
       myLocationEnabled: false,
-      mapToolbarEnabled: _isMapExpanded,
+      mapToolbarEnabled: false,
+      onMapCreated: (controller) => _mapController.complete(controller),
+      style: isDark ? _darkMapStyle : null,
+    );
+  }
+
+  Widget _buildTimeline(
+    DailyTravelSummary summary,
+    Color? textColor,
+    Color? subTextColor,
+    Color borderColor,
+    Color cardColor,
+    bool isDark,
+  ) {
+    final stops = summary.stops;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        const Text(
+          'Journey Timeline',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: ListView.builder(
+            controller: _timelineScrollController,
+            physics: const BouncingScrollPhysics(),
+            itemCount: stops.length,
+            itemBuilder: (context, index) {
+              final stop = stops[index];
+              final isLast = index == stops.length - 1;
+              final isSelected = index == _selectedStopIndex;
+
+              return _buildTimelineItem(
+                context: context,
+                index: index,
+                stop: stop,
+                nextStop: !isLast ? stops[index + 1] : null,
+                isLast: isLast,
+                isSelected: isSelected,
+                textColor: textColor,
+                subTextColor: subTextColor,
+                borderColor: borderColor,
+                cardColor: cardColor,
+                isDark: isDark,
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -291,199 +498,212 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
     required DeliveryStop stop,
     required DeliveryStop? nextStop,
     required bool isLast,
+    required bool isSelected,
+    required Color? textColor,
     required Color? subTextColor,
     required Color borderColor,
     required Color cardColor,
     required bool isDark,
   }) {
-    final type = stop.stopType.toLowerCase();
-    final isNote = type.contains('note');
-    
-    final stopColor = isNote
-        ? Colors.purpleAccent
-        : type == 'home'
-            ? Colors.redAccent
-            : type == 'office'
-                ? Colors.greenAccent[700]!
-                : type == 'rest'
-                    ? Colors.orangeAccent
-                    : Colors.blueAccent;
+    final stopColor = stop.stopType == 'home'
+        ? Colors.redAccent
+        : stop.stopType == 'office'
+            ? Colors.greenAccent[700]!
+            : Colors.blueAccent;
 
-    final stopIcon = isNote
-        ? Icons.note_alt_rounded
-        : type == 'home'
-            ? Icons.home_rounded
-            : type == 'office'
-                ? Icons.business_rounded
-                : type == 'rest'
-                    ? Icons.hotel_rounded
-                    : Icons.local_shipping_rounded;
+    final stopIcon = stop.stopType == 'home'
+        ? Icons.home_rounded
+        : stop.stopType == 'office'
+            ? Icons.business_rounded
+            : Icons.local_shipping_rounded;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Column(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: stopColor.withValues(alpha: isDark ? 0.2 : 0.12),
-                shape: BoxShape.circle,
-                border: Border.all(color: stopColor.withValues(alpha: 0.4), width: 2),
-              ),
-              child: Icon(stopIcon, color: stopColor, size: 24),
-            ),
-            if (!isLast)
-              Container(
-                width: 2.5,
-                height: isNote ? 80 : 140,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      stopColor.withValues(alpha: 0.5),
-                      borderColor.withValues(alpha: 0.1),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Indicator column
+          Column(
             children: [
-              Text(
-                isNote ? 'QUICK NOTE' : '${stop.stopType.toUpperCase()} #${index + 1}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  color: stopColor,
-                  letterSpacing: 1.2,
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: isSelected ? 56 : 48,
+                height: isSelected ? 56 : 48,
+                decoration: BoxDecoration(
+                  color: isSelected ? stopColor : stopColor.withOpacity(isDark ? 0.2 : 0.12),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? Colors.white : stopColor.withOpacity(0.4),
+                    width: isSelected ? 3 : 2
+                  ),
+                  boxShadow: isSelected ? [
+                    BoxShadow(color: stopColor.withOpacity(0.4), blurRadius: 10, spreadRadius: 2)
+                  ] : [],
+                ),
+                child: Icon(
+                  stopIcon, 
+                  color: isSelected ? Colors.white : stopColor, 
+                  size: isSelected ? 28 : 24
                 ),
               ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(Icons.schedule_rounded, size: 14, color: subTextColor),
-                  const SizedBox(width: 6),
-                  Text(
-                    isNote 
-                      ? DateFormat('hh:mm a').format(stop.arrivalTime)
-                      : '${DateFormat('hh:mm a').format(stop.arrivalTime)} – ${DateFormat('hh:mm a').format(stop.departureTime)}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: subTextColor,
-                      fontWeight: FontWeight.w500,
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 2.5,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          stopColor.withOpacity(0.5),
+                          borderColor.withOpacity(0.1),
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
-              if (stop.note != null || isNote) ...[
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: stopColor.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: stopColor.withValues(alpha: 0.1)),
-                  ),
-                  child: Text(
-                    stop.note ?? stop.stopType,
-                    style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
-                  ),
                 ),
-              ],
-              if (!isNote) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _buildTimelineChip(
-                      context,
-                      Icons.timer_outlined,
-                      stop.formattedDuration,
-                      Theme.of(context).colorScheme.secondary.withValues(alpha: isDark ? 0.2 : 0.1),
-                      Theme.of(context).colorScheme.secondary,
-                    ),
-                    if (stop.distanceFromPreviousStop > 0)
-                      _buildTimelineChip(
-                        context,
-                        Icons.map_outlined,
-                        '${stop.distanceFromPreviousStop.toStringAsFixed(1)} km',
-                        Colors.blue.withValues(alpha: isDark ? 0.2 : 0.1),
-                        Colors.blue,
-                      ),
-                  ],
-                ),
-              ],
-              if (nextStop != null && !isNote) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: isDark ? 0.2 : 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.15)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.directions_car_filled_rounded,
-                          size: 16, color: Colors.orange),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${nextStop.arrivalTime.difference(stop.departureTime).inMinutes} min transit',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 32),
             ],
           ),
-        ),
-      ],
-    );
-  }
+          const SizedBox(width: 16),
 
-  Widget _buildTimelineChip(
-    BuildContext context,
-    IconData icon,
-    String label,
-    Color bgColor,
-    Color iconColor,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: iconColor),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
+          // Content Column
+          Expanded(
+            child: GestureDetector(
+              onTap: () => focusStop(stop, index),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isSelected ? stopColor.withOpacity(0.1) : cardColor.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: isSelected ? stopColor.withOpacity(0.3) : borderColor.withOpacity(0.1),
+                    width: isSelected ? 2 : 1
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${stop.stopType.toUpperCase()} #${index + 1}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: isSelected ? stopColor : subTextColor,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(Icons.gps_fixed, size: 16, color: stopColor),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${DateFormat('hh:mm a').format(stop.arrivalTime)} – ${DateFormat('hh:mm a').format(stop.departureTime)}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: textColor,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildTimelineChip(
+                          Icons.timer_outlined,
+                          stop.formattedDuration,
+                          Colors.orange,
+                          isDark,
+                        ),
+                        if (stop.distanceFromPreviousStop > 0)
+                          _buildTimelineChip(
+                            Icons.map_outlined,
+                            '${stop.distanceFromPreviousStop.toStringAsFixed(1)} km',
+                            Colors.blue,
+                            isDark,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildTimelineChip(IconData icon, String label, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(isDark ? 0.2 : 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Dark Map Style JSON
+  final String _darkMapStyle = '''
+[
+  {
+    "elementType": "geometry",
+    "stylers": [{"color": "#212121"}]
+  },
+  {
+    "elementType": "labels.icon",
+    "stylers": [{"visibility": "off"}]
+  },
+  {
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#757575"}]
+  },
+  {
+    "elementType": "labels.text.stroke",
+    "stylers": [{"color": "#212121"}]
+  },
+  {
+    "featureType": "administrative",
+    "elementType": "geometry",
+    "stylers": [{"color": "#757575"}]
+  },
+  {
+    "featureType": "poi",
+    "elementType": "geometry",
+    "stylers": [{"color": "#181818"}]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry.fill",
+    "stylers": [{"color": "#2c2c2c"}]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [{"color": "#000000"}]
+  }
+]
+''';
 }

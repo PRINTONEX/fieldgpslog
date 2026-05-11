@@ -4,12 +4,9 @@ import 'dart:ui';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:activity_recognition_flutter/activity_recognition_flutter.dart' as ar;
 
 import '../core/utils/distance_calculator.dart';
 import '../models/gps_log.dart';
-import '../models/vehicle.dart';
-import '../models/work_location.dart';
 import 'database_service.dart';
 import 'log_service.dart';
 
@@ -51,7 +48,7 @@ Future<void> initializeBackgroundService() async {
   await service.configure(
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
-      autoStart: true,
+      autoStart: false, // ✅ Disable auto-start to prevent permission crashes on boot
       autoStartOnBoot: true,
       isForegroundMode: true,
       notificationChannelId: 'gps_tracker_enterprise_v1',
@@ -81,18 +78,16 @@ void onStart(ServiceInstance service) async {
   int? currentLogId;
   GpsLog? activeLog;
   Position? lastPosition;
-  DateTime? stayStartTime;
   StreamSubscription<Position>? positionSubscription;
-  StreamSubscription<ar.ActivityEvent>? activitySubscription;
   Timer? flushTimer;
   int changeVersion = 0;
   int persistedVersion = 0;
 
   // Workflow State
   String? currentPOIName;
-  bool isMovingVehicular = false;
   DateTime? stopDetectedTime;
   bool stopLogged = false;
+  bool isMovingVehicular = false;
 
   Future<DatabaseService> ensureDatabase() async {
     if (dbService != null) return dbService!;
@@ -109,44 +104,17 @@ void onStart(ServiceInstance service) async {
     }
   }
 
-  Future<void> startTracking(int logId) async {
-    final db = await ensureDatabase();
-    activeLog = db.getLog(logId);
-    currentLogId = logId;
-    lastPosition = null;
-    stayStartTime = null;
-    changeVersion = 0;
-    persistedVersion = 0;
-    
-    flushTimer?.cancel();
-    flushTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-       if (activeLog != null && changeVersion != persistedVersion) {
-         await db.saveLog(activeLog!);
-         persistedVersion = changeVersion;
-       }
-    });
-    
-    LogService.log("Tracking started for log $logId");
-  }
-
-  Future<void> stopTracking() async {
-    if (activeLog != null) {
-      activeLog!.endTime = DateTime.now();
-      final db = await ensureDatabase();
-      await db.saveLog(activeLog!);
-      LogService.log("Tracking stopped for log ${activeLog!.id}");
-    }
-    activeLog = null;
-    currentLogId = null;
-    flushTimer?.cancel();
-  }
-
   Future<void> handlePosition(Position position) async {
     final db = await ensureDatabase();
     final speed = position.speed;
     final accuracy = position.accuracy;
 
-    if (accuracy > 50) return; // Skip inaccurate points
+    LogService.log("📍 Location Received: lat=${position.latitude}, lng=${position.longitude}, speed=${speed.toStringAsFixed(1)}, accuracy=${accuracy.toStringAsFixed(1)}");
+
+    if (accuracy > 50) {
+      LogService.log("⚠️ Skipping inaccurate point (accuracy: $accuracy)");
+      return; 
+    }
 
     // 1. POI DETECTION (Dynamic based on saved locations)
     final allLocations = db.workLocationBox.values.toList();
@@ -166,27 +134,13 @@ void onStart(ServiceInstance service) async {
     if (matchedPOI != currentPOIName) {
       if (matchedPOI != null) {
         await db.logActivity("Reached $matchedPOI", lat: position.latitude, lng: position.longitude);
-        LogService.log("Workflow: Reached $matchedPOI");
-        updateNotification("At $matchedPOI", "Tracking paused automatically.");
-        if (activeLog != null) await stopTracking();
+        LogService.log("🏢 Workflow: Reached $matchedPOI");
+        updateNotification("At $matchedPOI", "Location reached.");
+        // We don't auto-stop anymore to prevent issues when starting at a POI
       } else if (currentPOIName != null) {
         await db.logActivity("Left $currentPOIName", lat: position.latitude, lng: position.longitude);
-        LogService.log("Workflow: Left $currentPOIName");
-        updateNotification("Left $currentPOIName", "Resuming tracking...");
-        
-        // AUTO RESUME
-        final vehicles = db.getAllVehicles();
-        if (vehicles.isNotEmpty) {
-          final v = vehicles.firstWhere((v) => v.isDefault, orElse: () => vehicles.first);
-          final newLog = GpsLog()
-            ..startTime = DateTime.now()
-            ..vehicleId = v.id
-            ..rateApplied = v.ratePerKm
-            ..points = []
-            ..stays = [];
-          final id = await db.saveLog(newLog);
-          await startTracking(id);
-        }
+        LogService.log("🚗 Workflow: Left $currentPOIName");
+        updateNotification("Left $currentPOIName", "Resuming movement...");
       }
       currentPOIName = matchedPOI;
     }
@@ -198,7 +152,7 @@ void onStart(ServiceInstance service) async {
           String type = currentPOIName ?? "Delivery Stop";
           if (currentPOIName == null && speed < 0.1) type = "Rest/Traffic Stop";
           await db.logActivity(type, lat: position.latitude, lng: position.longitude);
-          LogService.log("Auto-Detect: $type");
+          LogService.log("🛑 Auto-Detect: $type");
           stopLogged = true;
        }
     } else {
@@ -213,7 +167,8 @@ void onStart(ServiceInstance service) async {
         distGained = DistanceCalculator.getDistanceBetween(lastPosition!, position);
       }
 
-      if (speed > 0.8 || distGained > 0.010) {
+      // Log point if moved more than 10 meters or significant speed
+      if (speed > 0.5 || distGained > 0.010) {
         activeLog!.points = [...activeLog!.points, GpsPoint()
           ..latitude = position.latitude
           ..longitude = position.longitude
@@ -223,6 +178,8 @@ void onStart(ServiceInstance service) async {
         activeLog!.totalFare = activeLog!.totalDistance * activeLog!.rateApplied;
         changeVersion++;
         lastPosition = position;
+        
+        LogService.log("📈 Recorded point. Total distance: ${activeLog!.totalDistance.toStringAsFixed(2)} km");
       }
     }
 
@@ -235,32 +192,115 @@ void onStart(ServiceInstance service) async {
       'fare': activeLog?.totalFare ?? 0.0,
       'status': currentPOIName != null ? "At $currentPOIName" : (activeLog != null ? "Tracking Active" : "Monitoring..."),
       'startTime': activeLog?.startTime.toIso8601String(),
+      'isTracking': activeLog != null,
     });
   }
 
-  // Activity stream
-  activitySubscription = ar.ActivityRecognition().activityStream(runForegroundService: false).listen((event) {
-    isMovingVehicular = (event.type == ar.ActivityType.inVehicle || event.type == ar.ActivityType.onBicycle);
-    service.invoke('activityUpdate', {'type': event.type.name});
-  });
+  Future<void> initStreams() async {
+    if (positionSubscription != null) return;
 
-  // GPS Stream - Enterprise Configuration (High Resilience)
-  positionSubscription = Geolocator.getPositionStream(
-    locationSettings: AndroidSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 0,
-      intervalDuration: const Duration(seconds: 5),
-      foregroundNotificationConfig: const ForegroundNotificationConfig(
-        notificationText: "Delivery tracking system active in background.",
-        notificationTitle: "GPS Enterprise Active",
-        enableWakeLock: true,
-      ),
-    ),
-  ).listen(handlePosition);
+    LogService.log("Initializing GPS and Activity streams in background...");
+
+    // GPS Stream
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+        positionSubscription = Geolocator.getPositionStream(
+          locationSettings: AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 0,
+            intervalDuration: const Duration(seconds: 5),
+            foregroundNotificationConfig: const ForegroundNotificationConfig(
+              notificationText: "Delivery tracking system active in background.",
+              notificationTitle: "GPS Enterprise Active",
+              enableWakeLock: true,
+            ),
+          ),
+        ).listen(handlePosition);
+      } else {
+        LogService.log("❌ Cannot start GPS stream: Missing permissions in service.");
+      }
+    } catch (e) {
+      LogService.log("⚠️ GPS stream error: $e");
+    }
+
+    // Note: Activity recognition is now handled by the UI isolate to avoid NO_ACTIVITY errors.
+  }
+
+  Future<void> startTracking(int logId) async {
+    final db = await ensureDatabase();
+    activeLog = db.getLog(logId);
+    currentLogId = logId;
+    lastPosition = null;
+    changeVersion = 0;
+    persistedVersion = 0;
+
+    await initStreams(); // Ensure streams are running
+    
+    // ✅ PRE-INITIALIZE POI
+    try {
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
+      final allLocations = db.workLocationBox.values.toList();
+      for (var loc in allLocations) {
+        final dist = DistanceCalculator.getDistanceBetween(
+          Position(latitude: loc.latitude, longitude: loc.longitude, timestamp: DateTime.now(), accuracy: 0, altitude: 0, heading: 0, speed: 0, speedAccuracy: 0, altitudeAccuracy: 0, headingAccuracy: 0),
+          pos
+        );
+        if (dist < loc.radius / 1000) {
+          currentPOIName = loc.name;
+          break;
+        }
+      }
+    } catch (e) {
+      LogService.log("⚠️ Could not pre-detect POI: $e");
+    }
+    
+    flushTimer?.cancel();
+    flushTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+       if (activeLog != null && changeVersion != persistedVersion) {
+         await db.saveLog(activeLog!);
+         persistedVersion = changeVersion;
+       }
+    });
+    
+    LogService.log("Tracking started for log $logId");
+  }
+
+  Future<void> stopTracking() async {
+    if (activeLog != null) {
+      activeLog!.endTime = DateTime.now();
+      final db = await ensureDatabase();
+      await db.saveLog(activeLog!);
+      LogService.log("✅ Final log saved for trip ${activeLog!.id}. Distance: ${activeLog!.totalDistance.toStringAsFixed(2)} km");
+    }
+    activeLog = null;
+    currentLogId = null;
+    flushTimer?.cancel();
+    
+    service.invoke('stopped');
+  }
 
   // Manual listeners
-  service.on('startTracking').listen((event) => startTracking(event!['logId']));
-  service.on('stopTracking').listen((event) => stopTracking());
+  service.on('startTracking').listen((event) {
+    LogService.log("🚀 Service received startTracking command for log ${event!['logId']}");
+    startTracking(event['logId']);
+  });
+  
+  service.on('stopTracking').listen((event) {
+    LogService.log("🛑 Service received stopTracking command");
+    stopTracking();
+  });
+
+  service.on('activityUpdate').listen((event) {
+    if (event != null) {
+      final type = event['type'] as String?;
+      if (type != null) {
+        isMovingVehicular = (type == 'inVehicle' || type == 'onBicycle');
+        // We could also broadcast this back or use it for stop detection logic refinement
+      }
+    }
+  });
+
   service.on('notificationAction').listen((event) async {
     final db = await ensureDatabase();
     final action = event!['actionId'];

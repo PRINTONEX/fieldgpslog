@@ -22,6 +22,8 @@ class DatabaseService {
   Box<ActivityLog>? _activityLogBox;
 
   Future<void> init() async {
+    // Check if already initialized in this isolate
+    if (_gpsLogBox != null) return;
     await initHive();
     await openBoxes();
   }
