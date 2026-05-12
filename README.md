@@ -20,7 +20,6 @@ Field GPS Log is a commercial-grade Flutter application designed for delivery pr
 - **Net Profit Dashboard**: Live visibility into your actual profit (`Earnings - Expenses`) for the day.
 
 ### 🎙️ Hands-Free Productivity
-- **Voice Notes**: Dictate delivery updates while riding using integrated on-device Speech-to-Text.
 - **Background Actions**: Perform quick actions (Rest, Delivery, Note) directly from notifications without opening the app.
 
 ### 🗺️ Advanced Map Analytics

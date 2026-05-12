@@ -19,8 +19,8 @@ class DashboardMapController extends GetxController {
   LatLng? _lastBikePosition;
   double _lastRotation = 0;
 
-  // ✅ ADD THIS
-  final Rx<LatLng> initialPosition = const LatLng(25.5788, 91.8933).obs;
+  // ✅ Initial default position (Imphal area based on coordinates)
+  final Rx<LatLng> initialPosition = const LatLng(24.6557166, 94.0190683).obs;
   final Rx<MapType> currentMapType = MapType.normal.obs;
 
   // ---------------- MAP ----------------

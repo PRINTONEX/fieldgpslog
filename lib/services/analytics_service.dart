@@ -65,7 +65,10 @@ class AnalyticsService {
       "FETCHING LOGS FROM DATABASE",
     );
     // Generate from logs
-    final logs = await _db.getLogsForDate(date);
+    var logs = await _db.getLogsForDate(date);
+
+    // ✅ Filter out "junk" logs (no points recorded) to keep stats accurate
+    logs = logs.where((log) => log.points.isNotEmpty).toList();
 
     debugPrint("====================================");
     debugPrint("ANALYTICS SERVICE DEBUG");

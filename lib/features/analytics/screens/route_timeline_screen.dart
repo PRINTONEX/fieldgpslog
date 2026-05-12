@@ -217,7 +217,7 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
                 Icon(
                   Icons.timeline_outlined,
                   size: 100,
-                  color: subTextColor?.withOpacity(0.3) ?? borderColor,
+                  color: subTextColor?.withValues(alpha: 0.3) ?? borderColor,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -240,10 +240,10 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
                     margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(28),
-                      border: Border.all(color: borderColor.withOpacity(0.2)),
+                      border: Border.all(color: borderColor.withValues(alpha: 0.2)),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(isDark ? 0.4 : 0.08),
+                          color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.08),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
@@ -297,9 +297,9 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: cardColor.withOpacity(0.9),
+              color: cardColor.withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(30),
-              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10)],
+              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
             ),
             child: Column(
               children: [1.0, 2.0, 4.0].map((s) {
@@ -395,7 +395,7 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
           anchor: const Offset(0.5, 0.5),
           flat: true,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-          zIndex: 2,
+          zIndexInt: 2,
         ),
       );
     }
@@ -420,7 +420,7 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
         Polyline(
           polylineId: const PolylineId('upcoming'),
           points: polylinePoints.sublist(_selectedStopIndex != -1 ? _selectedStopIndex : 0),
-          color: primaryColor.withOpacity(0.4),
+          color: primaryColor.withValues(alpha: 0.4),
           width: 5,
           geodesic: true,
           patterns: [PatternItem.dash(20), PatternItem.gap(10)],
@@ -529,14 +529,14 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
                 width: isSelected ? 56 : 48,
                 height: isSelected ? 56 : 48,
                 decoration: BoxDecoration(
-                  color: isSelected ? stopColor : stopColor.withOpacity(isDark ? 0.2 : 0.12),
+                  color: isSelected ? stopColor : stopColor.withValues(alpha: isDark ? 0.2 : 0.12),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isSelected ? Colors.white : stopColor.withOpacity(0.4),
+                    color: isSelected ? Colors.white : stopColor.withValues(alpha: 0.4),
                     width: isSelected ? 3 : 2
                   ),
                   boxShadow: isSelected ? [
-                    BoxShadow(color: stopColor.withOpacity(0.4), blurRadius: 10, spreadRadius: 2)
+                    BoxShadow(color: stopColor.withValues(alpha: 0.4), blurRadius: 10, spreadRadius: 2)
                   ] : [],
                 ),
                 child: Icon(
@@ -554,8 +554,8 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          stopColor.withOpacity(0.5),
-                          borderColor.withOpacity(0.1),
+                          stopColor.withValues(alpha: 0.5),
+                          borderColor.withValues(alpha: 0.1),
                         ],
                       ),
                     ),
@@ -574,10 +574,10 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
                 margin: const EdgeInsets.only(bottom: 24),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isSelected ? stopColor.withOpacity(0.1) : cardColor.withOpacity(0.6),
+                  color: isSelected ? stopColor.withValues(alpha: 0.1) : cardColor.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(
-                    color: isSelected ? stopColor.withOpacity(0.3) : borderColor.withOpacity(0.1),
+                    color: isSelected ? stopColor.withValues(alpha: 0.3) : borderColor.withValues(alpha: 0.1),
                     width: isSelected ? 2 : 1
                   ),
                 ),
@@ -643,9 +643,9 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(isDark ? 0.2 : 0.1),
+        color: color.withValues(alpha: isDark ? 0.2 : 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:google_maps_flutter_android/google_maps_flutter_android.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 import 'package:path_provider/path_provider.dart';
@@ -49,6 +50,9 @@ void main() async {
   await analyticsService.init();
 
   Get.put(VehicleController(), permanent: true);
+
+  // ✅ Register Background Service as a singleton to avoid re-instantiation errors
+  Get.put(FlutterBackgroundService());
 
   await initializeBackgroundService();
 

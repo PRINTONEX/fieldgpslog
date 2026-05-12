@@ -217,9 +217,13 @@ class _DebugScreenState extends State<DebugScreen> with SingleTickerProviderStat
                 itemBuilder: (context, index) {
                   final log = logs[index];
                   Color color = Colors.black87;
-                  if (log.contains('[ERROR]') || log.contains('⚠️') || log.contains('❌')) color = Colors.red;
-                  else if (log.contains('✅') || log.contains('🚀')) color = Colors.green[700]!;
-                  else if (log.contains('📍')) color = Colors.blue[700]!;
+                  if (log.contains('[ERROR]') || log.contains('⚠️') || log.contains('❌')) {
+                    color = Colors.red;
+                  } else if (log.contains('✅') || log.contains('🚀')) {
+                    color = Colors.green[700]!;
+                  } else if (log.contains('📍')) {
+                    color = Colors.blue[700]!;
+                  }
                   
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),

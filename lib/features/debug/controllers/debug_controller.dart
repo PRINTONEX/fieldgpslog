@@ -2,13 +2,13 @@ import 'package:get/get.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import '../../../services/database_service.dart';
 import '../../../services/log_service.dart';
-import '../../tracking/controllers/tracking_controller.dart';
-import '../../analytics/controllers/analytics_controller.dart';
-import '../../dashboard/controllers/dashboard_map_controller.dart';
 
 class DebugController extends GetxController {
   final DatabaseService db = Get.find<DatabaseService>();
   
+  // Use the registered singleton instance
+  FlutterBackgroundService get _backgroundService => Get.find<FlutterBackgroundService>();
+
   // Stats Observables
   var vehicleCount = 0.obs;
   var gpsLogCount = 0.obs;
@@ -47,8 +47,7 @@ class DebugController extends GetxController {
   }
 
   Future<void> _checkBackgroundService() async {
-    final service = FlutterBackgroundService();
-    isBackgroundRunning.value = await service.isRunning();
+    isBackgroundRunning.value = await _backgroundService.isRunning();
   }
 
   // Helper to get raw logs for the UI

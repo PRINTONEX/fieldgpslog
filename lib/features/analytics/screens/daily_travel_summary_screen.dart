@@ -28,7 +28,6 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
   Widget build(BuildContext context) {
     // 7. Helper theme variables at top of build()
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final bgColor = theme.scaffoldBackgroundColor;
     final cardColor = theme.cardColor;
     final primaryColor = theme.colorScheme.primary;
@@ -73,7 +72,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                       Icon(
                         Icons.analytics_outlined,
                         size: 100,
-                        color: subTextColor?.withOpacity(0.2) ?? dividerColor,
+                        color: subTextColor?.withValues(alpha: 0.2) ?? dividerColor,
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -203,10 +202,10 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                   vertical: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.08),
+                  color: primaryColor.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: primaryColor.withOpacity(0.15),
+                    color: primaryColor.withValues(alpha: 0.15),
                   ),
                 ),
                 child: Row(
@@ -314,10 +313,10 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
     return Card(
       elevation: 0,
       margin: EdgeInsets.zero,
-      color: accentColor.withOpacity(0.08),
+      color: accentColor.withValues(alpha: 0.08),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: accentColor.withOpacity(0.12)),
+        side: BorderSide(color: accentColor.withValues(alpha: 0.12)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -358,7 +357,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: dividerColor.withOpacity(0.1)),
+        side: BorderSide(color: dividerColor.withValues(alpha: 0.1)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -375,7 +374,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withOpacity(0.1),
+                    color: Colors.amber.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -384,7 +383,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                       (index) => Icon(
                         Icons.star_rounded,
                         size: 16,
-                        color: index < rating ? Colors.amber : (subTextColor?.withOpacity(0.2) ?? Colors.grey.withOpacity(0.2)),
+                        color: index < rating ? Colors.amber : (subTextColor?.withValues(alpha: 0.2) ?? Colors.grey.withValues(alpha: 0.2)),
                       ),
                     ),
                   ),
@@ -400,7 +399,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                     child: LinearProgressIndicator(
                       value: efficiency / 100,
                       minHeight: 10,
-                      backgroundColor: subTextColor?.withOpacity(0.1) ?? Colors.grey.withOpacity(0.1),
+                      backgroundColor: subTextColor?.withValues(alpha: 0.1) ?? Colors.grey.withValues(alpha: 0.1),
                       valueColor: AlwaysStoppedAnimation<Color>(
                         efficiency >= 80
                             ? Colors.green
@@ -428,7 +427,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                 children: [
                   _buildEfficiencyMetric('Active',
                       (summary.totalWorkingMinutes - summary.totalIdleMinutes), subTextColor),
-                  VerticalDivider(color: dividerColor.withOpacity(0.2), indent: 4, endIndent: 4),
+                  VerticalDivider(color: dividerColor.withValues(alpha: 0.2), indent: 4, endIndent: 4),
                   _buildEfficiencyMetric('Idle', summary.totalIdleMinutes, subTextColor),
                 ],
               ),
@@ -462,7 +461,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: dividerColor.withOpacity(0.1)),
+        side: BorderSide(color: dividerColor.withValues(alpha: 0.1)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -479,7 +478,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.1),
+                    color: primaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -493,7 +492,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            ...summary.stops.map((stop) => _buildStopItem(context, stop, subTextColor)).toList(),
+            ...summary.stops.map((stop) => _buildStopItem(context, stop, subTextColor)),
           ],
         ),
       ),
@@ -511,7 +510,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: subTextColor?.withOpacity(0.03) ?? Colors.grey.withOpacity(0.03),
+        color: subTextColor?.withValues(alpha: 0.03) ?? Colors.grey.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -555,7 +554,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${stop.distanceFromPreviousStop.toStringAsFixed(1)}',
+                stop.distanceFromPreviousStop.toStringAsFixed(1),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               Text(
@@ -577,7 +576,7 @@ class _DailyTravelSummaryScreenState extends State<DailyTravelSummaryScreen> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: dividerColor.withOpacity(0.1)),
+        side: BorderSide(color: dividerColor.withValues(alpha: 0.1)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),

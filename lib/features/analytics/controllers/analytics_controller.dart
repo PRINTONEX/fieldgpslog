@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-
 import '../../../models/delivery_analytics.dart';
 import '../../../models/activity_log.dart';
 import '../../../services/analytics_service.dart';
@@ -9,6 +9,8 @@ import '../../../services/expense_service.dart';
 import '../../../services/database_service.dart';
 
 class AnalyticsController extends GetxController {
+  // Use the registered singleton instance
+  FlutterBackgroundService get _backgroundService => Get.find<FlutterBackgroundService>();
 
   final AnalyticsService _analyticsService =
   Get.find<AnalyticsService>();
@@ -50,6 +52,8 @@ class AnalyticsController extends GetxController {
   final RxBool isLoading = false.obs;
   final RxString errorMessage = ''.obs;
 
+  StreamSubscription? _updateSubscription;
+
   @override
   void onInit() {
     super.onInit();
@@ -59,9 +63,14 @@ class AnalyticsController extends GetxController {
     _listenToBackgroundService();
   }
 
+  @override
+  void onClose() {
+    _updateSubscription?.cancel();
+    super.onClose();
+  }
+
   void _listenToBackgroundService() {
-    final service = FlutterBackgroundService();
-    service.on('update').listen((event) {
+    _updateSubscription = _backgroundService.on('update').listen((event) {
       // If we are looking at today's data, reload it to show live updates
       final today = DateTime.now();
       if (selectedDate.value.year == today.year &&

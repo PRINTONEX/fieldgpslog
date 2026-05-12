@@ -17,6 +17,9 @@ import '../../dashboard/controllers/dashboard_map_controller.dart';
 class TrackingController extends GetxController {
   final DatabaseService _db = Get.find<DatabaseService>();
   final LocationService _locationService = LocationService();
+  
+  // Use the registered singleton instance
+  FlutterBackgroundService get _backgroundService => Get.find<FlutterBackgroundService>();
 
   var isTracking = false.obs;
   var totalDistance = 0.0.obs;
@@ -44,60 +47,57 @@ class TrackingController extends GetxController {
   void _initUiActivityRecognition() {
     try {
       ar.ActivityRecognition().activityStream(runForegroundService: false).listen((event) {
-        final service = FlutterBackgroundService();
-        service.invoke('activityUpdate', {'type': event.type.name});
+        _backgroundService.invoke('activityUpdate', {'type': event.type.name});
         currentActivity.value = event.type.name.toUpperCase();
-      }, onError: (e) => developer.log("⚠️ UI Activity Recognition error: $e"));
-    } catch (e) {
-      developer.log("⚠️ UI Activity Recognition setup error: $e");
-    }
-  }
+        }, onError: (e) => developer.log("⚠️ UI Activity Recognition error: $e"));
+        } catch (e) {
+        developer.log("⚠️ UI Activity Recognition setup error: $e");
+        }
+        }
 
-  double _getBearing(LatLng start, LatLng end) {
-    double lat1 = start.latitude * math.pi / 180;
-    double lon1 = start.longitude * math.pi / 180;
+        double _getBearing(LatLng start, LatLng end) {
+        double lat1 = start.latitude * math.pi / 180;
+        double lon1 = start.longitude * math.pi / 180;
 
-    double lat2 = end.latitude * math.pi / 180;
-    double lon2 = end.longitude * math.pi / 180;
+        double lat2 = end.latitude * math.pi / 180;
+        double lon2 = end.longitude * math.pi / 180;
 
-    double dLon = lon2 - lon1;
+        double dLon = lon2 - lon1;
 
-    double y = math.sin(dLon) * math.cos(lat2);
-    double x = math.cos(lat1) * math.sin(lat2) -
+        double y = math.sin(dLon) * math.cos(lat2);
+        double x = math.cos(lat1) * math.sin(lat2) -
         math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
 
-    double bearing = math.atan2(y, x);
-    return (bearing * 180 / math.pi);
-  }
+        double bearing = math.atan2(y, x);
+        return (bearing * 180 / math.pi);
+        }
 
-  Future<void> _loadDefaultVehicle() async {
-    try {
-      final allVehicles = _db.getAllVehicles();
-      var vehicle = allVehicles.firstWhereOrNull((v) => v.isDefault);
-      if (vehicle == null && allVehicles.isNotEmpty) {
+        Future<void> _loadDefaultVehicle() async {
+        try {
+        final allVehicles = _db.getAllVehicles();
+        var vehicle = allVehicles.firstWhereOrNull((v) => v.isDefault);
+        if (vehicle == null && allVehicles.isNotEmpty) {
         vehicle = allVehicles.first;
-      }
-      selectedVehicle.value = vehicle;
-    } catch (e) {
-      developer.log("Error loading vehicle", error: e);
-    }
-  }
+        }
+        selectedVehicle.value = vehicle;
+        } catch (e) {
+        developer.log("Error loading vehicle", error: e);
+        }
+        }
 
-  void _listenToServiceUpdates() {
-    final service = FlutterBackgroundService();
-
-    // Listen to Activity Updates from Background
-    _activitySubscription = service.on('activityUpdate').listen((event) {
-      if (event != null) {
+        void _listenToServiceUpdates() {
+        // Listen to Activity Updates from Background
+        _activitySubscription = _backgroundService.on('activityUpdate').listen((event) {
+        if (event != null) {
         final type = event['type'] as String?;
         if (type != null) {
           currentActivity.value = type.toUpperCase();
           developer.log("📡 Activity Update from BG: $type");
         }
-      }
-    });
+        }
+        });
 
-    _serviceSubscription = service.on('update').listen((event) {
+        _serviceSubscription = _backgroundService.on('update').listen((event) {
           developer.log("📡 RAW EVENT: $event");
 
           if (event != null) {
@@ -118,7 +118,7 @@ class TrackingController extends GetxController {
             final fare =
                 (event['fare'] as num?)?.toDouble() ?? 0.0;
             final speed = (event['speed'] as num?)?.toDouble() ?? 0.0;
-            
+
             final startTimeStr = event['startTime'] as String?;
             if (startTimeStr != null) {
               _startTime = DateTime.tryParse(startTimeStr);
@@ -130,7 +130,7 @@ class TrackingController extends GetxController {
             totalDistance.value = distance;
             totalFare.value = fare;
             currentSpeed.value = speed * 3.6; // Convert m/s to km/h
-            
+
             final status = event['status'] as String?;
             if (status != null) {
               trackingStatus.value = status;
@@ -186,89 +186,88 @@ class TrackingController extends GetxController {
           }
         });
 
-    service.on('stopped').listen((event) {
-      developer.log("📡 Service signaled STOPPED");
-      if (Get.isRegistered<AnalyticsController>()) {
+        _backgroundService.on('stopped').listen((event) {
+        developer.log("📡 Service signaled STOPPED");
+        if (Get.isRegistered<AnalyticsController>()) {
         Get.find<AnalyticsController>().loadAnalyticsForDate(DateTime.now());
-      }
-    });
-  }
+        }
+        });
+        }
 
-  void _startDurationTimer() {
-    if (_durationTimer != null && _durationTimer!.isActive) return;
-    
-    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_startTime != null) {
+        void _startDurationTimer() {
+        if (_durationTimer != null && _durationTimer!.isActive) return;
+
+        _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_startTime != null) {
         final diff = DateTime.now().difference(_startTime!);
         final h = diff.inHours.toString().padLeft(2, '0');
         final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
         final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
         tripDuration.value = "$h:$m:$s";
-      } else {
+        } else {
         tripDuration.value = "00:00:00";
-      }
-    });
-  }
+        }
+        });
+        }
 
-  Future<void> startTracking() async {
-    if (selectedVehicle.value == null) {
-      Get.snackbar("Error", "Please select a vehicle in settings first");
-      return;
-    }
+        Future<void> startTracking() async {
+        if (selectedVehicle.value == null) {
+        Get.snackbar("Error", "Please select a vehicle in settings first");
+        return;
+        }
 
-    // ✅ Permission Check
-    final hasPermission = await _locationService.handlePermission();
-    if (!hasPermission) {
-      Get.snackbar("Permission Denied", "Please grant all required permissions to start tracking.");
-      return;
-    }
+        // ✅ Permission Check
+        final hasPermission = await _locationService.handlePermission();
+        if (!hasPermission) {
+        Get.snackbar("Permission Denied", "Please grant all required permissions to start tracking.");
+        return;
+        }
 
-    final now = DateTime.now();
-    final newLog = GpsLog()
-      ..startTime = now
-      ..vehicleId = selectedVehicle.value!.id
-      ..rateApplied = selectedVehicle.value!.ratePerKm
-      ..points = []
-      ..stays = [];
+        final now = DateTime.now();
+        final newLog = GpsLog()
+        ..startTime = now
+        ..vehicleId = selectedVehicle.value!.id
+        ..rateApplied = selectedVehicle.value!.ratePerKm
+        ..points = []
+        ..stays = [];
 
-    final logId = await _db.saveLog(newLog);
-    developer.log("🆕 New trip saved with ID: $logId");
+        final logId = await _db.saveLog(newLog);
+        developer.log("🆕 New trip saved with ID: $logId");
 
-    final service = FlutterBackgroundService();
-    bool isRunning = await service.isRunning();
-    if (!isRunning) {
-      await service.startService();
-    }
-    
-    service.invoke('startTracking', {'logId': logId});
+        bool isRunning = await _backgroundService.isRunning();
+        if (!isRunning) {
+        await _backgroundService.startService();
+        // Give it a moment to initialize listeners
+        await Future.delayed(const Duration(milliseconds: 1000));
+        }
 
-    _startTime = now;
-    _startDurationTimer();
+        _backgroundService.invoke('startTracking', {'logId': logId});
 
-    totalDistance.value = 0.0;
-    totalFare.value = 0.0;
-    isTracking.value = true;
-    
-    // Clear old route on map
-    if (Get.isRegistered<DashboardMapController>()) {
-      Get.find<DashboardMapController>().routePoints.clear();
-      Get.find<DashboardMapController>().polylines.clear();
-    }
-    
-    // Delay UI feedback slightly to avoid map rendering race conditions during service start
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (Get.context != null) {
+        _startTime = now;
+        isTracking.value = true;
+        _startDurationTimer();
+
+        totalDistance.value = 0.0;
+        totalFare.value = 0.0;
+
+        // Clear old route on map
+        if (Get.isRegistered<DashboardMapController>()) {
+        Get.find<DashboardMapController>().routePoints.clear();
+        Get.find<DashboardMapController>().polylines.clear();
+        }
+
+        // Delay UI feedback slightly to avoid map rendering race conditions during service start
+        Future.delayed(const Duration(milliseconds: 500), () {
+        if (Get.context != null) {
         ScaffoldMessenger.of(Get.context!).showSnackBar(
-          SnackBar(content: Text("Tracking Started"), duration: Duration(seconds: 2)),
+          const SnackBar(content: Text("Tracking Started"), duration: Duration(seconds: 2)),
         );
-      }
-    });
-  }
+        }
+        });
+        }
 
-  Future<void> stopTracking() async {
-    final service = FlutterBackgroundService();
-    service.invoke('stopTracking');
-    isTracking.value = false;
+        Future<void> stopTracking() async {
+        _backgroundService.invoke('stopTracking');    isTracking.value = false;
     _durationTimer?.cancel();
     _startTime = null;
     tripDuration.value = "00:00:00";
@@ -281,7 +280,7 @@ class TrackingController extends GetxController {
     Future.delayed(const Duration(milliseconds: 500), () {
       if (Get.context != null) {
         ScaffoldMessenger.of(Get.context!).showSnackBar(
-          SnackBar(content: Text("Tracking Stopped. Trip saved."), duration: Duration(seconds: 2)),
+          const SnackBar(content: Text("Tracking Stopped. Trip saved."), duration: Duration(seconds: 2)),
         );
       }
     });

@@ -5,7 +5,6 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
 
 import '../../../services/image_marker.dart';
 import '../../../services/location_service.dart';
@@ -15,7 +14,6 @@ import '../../analytics/controllers/analytics_controller.dart';
 import '../../analytics/screens/route_timeline_screen.dart';
 import '../../../models/delivery_analytics.dart';
 import '../../../services/log_service.dart';
-import '../../../services/voice_note_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -30,7 +28,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   late final AnalyticsController analyticsCtrl;
   late final LocationService locationService;
   late final TabController _tabController;
-  final VoiceNoteService _voiceService = Get.put(VoiceNoteService());
   BitmapDescriptor? bikeIcon;
   BitmapDescriptor? navMarkerIcon;
 
@@ -84,18 +81,23 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
 
   Future<void> loadIcons() async {
     try {
-      bikeIcon = await bitmapFromURL(
-        "https://img.icons8.com/color/96/motorcycle.png",
-        targetWidth: 48,
+      // Use local asset for bike icon
+      bikeIcon = await bitmapFromAsset(
+        "assets/images/gpsMarker.png",
+        targetWidth: 50,
       );
-      navMarkerIcon = await bitmapFromURL(
-        "https://img.icons8.com/color/96/navigation.png",
-        targetWidth: 40,
+      
+      // Use Material Icon for navigation marker instead of URL
+      navMarkerIcon = await getBitmapDescriptorFromIconData(
+        Icons.navigation_rounded,
+        size: 80,
+        color: Colors.blueAccent,
       );
+      
       mapCtrl.setBikeIcon(bikeIcon);
       mapCtrl.navMarkerIcon = navMarkerIcon;
     } catch (e) {
-      debugPrint("Error loading icons: $e");
+      debugPrint("Error loading local icons: $e");
     }
   }
 
@@ -252,8 +254,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               _buildNavModeButton(),
               const SizedBox(height: 12),
               _buildMapTypeButton(),
-              const SizedBox(height: 12),
-              _buildVoiceNoteButton(),
             ],
           ),
         ),
@@ -270,11 +270,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           right: 20,
           child: _buildModernControlPanel(trackingCtrl),
         ),
-
-        // Voice Overlay
-        Obx(() => _voiceService.isListening.value 
-          ? Positioned.fill(child: _buildVoiceOverlay()) 
-          : const SizedBox.shrink()),
       ],
     );
   }
@@ -309,16 +304,16 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           left: 16,
           child: _buildGlassHUDCard(
             width: 200,
-            child: Row(
+            child: const Row(
               children: [
-                const Icon(Icons.turn_slight_right_rounded, color: Colors.cyanAccent, size: 32),
-                const SizedBox(width: 12),
+                Icon(Icons.turn_slight_right_rounded, color: Colors.cyanAccent, size: 32),
+                SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("500 m", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-                      const Text("Next Delivery Point", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text("500 m", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                      Text("Next Delivery Point", style: TextStyle(color: Colors.white70, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -411,54 +406,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       case MapType.hybrid: return Icons.layers_outlined;
       default: return Icons.map_outlined;
     }
-  }
-
-  Widget _buildVoiceNoteButton() {
-    return Obx(() => FloatingActionButton(
-      heroTag: 'voice',
-      onPressed: () {
-        if (_voiceService.isListening.value) {
-          _voiceService.stopListening();
-        } else {
-          _voiceService.startListening((text) {
-            final service = FlutterBackgroundService();
-            service.invoke('addQuickNote', {'note': text});
-            Get.snackbar("Note Saved", text, snackPosition: SnackPosition.BOTTOM);
-          });
-        }
-      },
-      backgroundColor: _voiceService.isListening.value ? Colors.red : Colors.blueAccent,
-      child: Icon(_voiceService.isListening.value ? Icons.stop : Icons.mic_rounded, color: Colors.white),
-    ));
-  }
-
-  Widget _buildVoiceOverlay() {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.6),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-              child: const Icon(Icons.mic, size: 64, color: Colors.white),
-            ),
-            const SizedBox(height: 24),
-            const Text("Listening for note...", style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            Obx(() => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                _voiceService.lastWords.value,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 16, fontStyle: FontStyle.italic),
-              ),
-            )),
-          ],
-        ),
-      ),
-    );
   }
 
   Widget _buildGlassStatsPanel(TrackingController ctrl) {
