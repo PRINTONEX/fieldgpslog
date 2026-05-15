@@ -246,9 +246,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               CircleAvatar(
                 backgroundColor: Colors.grey.withValues(alpha: 0.15),
                 child: IconButton(
-                  icon: const Icon(Icons.bug_report_outlined),
-                  onPressed: () => Get.toNamed('/debug'),
-                  color: Colors.orangeAccent,
+                  icon: const Icon(Icons.list_alt_rounded),
+                  onPressed: () => Get.toNamed('/logs'),
+                  color: Colors.blueAccent,
                 ),
               ),
               const SizedBox(width: 8),
@@ -783,69 +783,64 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildModernDateSelector(context, primaryColor, cardColor, subTextColor),
+                
                 if (summary == null)
                   _buildEmptyState(primaryColor, subTextColor)
                 else ...[
-
+                  // 1. PERFORMANCE GRID
                   const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    child: Text('Overview', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 0),
+                    child: Text('Performance Overview', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   _buildModernMetricsGrid(summary, cardColor, subTextColor),
-                  
+
+                  // 2. TIME ALLOCATION (New Detailing)
                   const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: EdgeInsets.fromLTRB(20, 24, 20, 10),
+                    child: Text('Time Allocation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  _buildCategoryBreakdown(summary),
+
+                  // 3. FUEL & EFFICIENCY
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 24, 20, 10),
                     child: Text('Fuel & Efficiency', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
-                  _buildModernFuelCard(summary, subTextColor),
-                  
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    child: Text('System Events', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  _buildActivityTimeline(),
 
-                  const SizedBox(height: 24),
+                  _buildModernFuelCard(summary, subTextColor),
+
+                  const SizedBox(height: 20),
+                  // 5. VIEW DETAILED ROUTE BUTTON
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: ElevatedButton(
-                      onPressed: () => Get.to(() => const RouteTimelineScreen()),
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 55),
-                        backgroundColor: primaryColor.withValues(alpha: 0.1),
-                        foregroundColor: primaryColor,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.timeline_rounded),
-                          SizedBox(width: 8),
-                          Text('VIEW DETAILED ROUTE', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: primaryColor.withValues(alpha: 0.2),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          )
                         ],
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: ElevatedButton(
-                      onPressed: () => Get.toNamed('/heatmap'),
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 55),
-                        backgroundColor: Colors.purple.withValues(alpha: 0.1),
-                        foregroundColor: Colors.purple,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.layers_rounded),
-                          SizedBox(width: 8),
-                          Text('VIEW DELIVERY HEATMAP', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ],
+                      child: ElevatedButton(
+                        onPressed: () => Get.to(() => const RouteTimelineScreen()),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 65),
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.map_rounded),
+                            SizedBox(width: 12),
+                            Text('VIEW DETAILED ROUTE MAP', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1)),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -855,6 +850,52 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           ),
         );
       }),
+    );
+  }
+
+  Widget _buildCategoryBreakdown(DailyTravelSummary summary) {
+    // Calculate totals for the 4 categories
+    int home = 0, office = 0, delivery = 0, rest = 0;
+    for (var stop in summary.stops) {
+      final type = stop.stopType.toLowerCase();
+      if (type == 'home') home += stop.durationMinutes;
+      else if (type == 'office') office += stop.durationMinutes;
+      else if (type == 'rest') rest += stop.durationMinutes;
+      else if (type == 'delivery') delivery += stop.durationMinutes;
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildCategoryStat('🏠 HOME', home, Colors.green),
+          _buildCategoryStat('🏢 OFFICE', office, Colors.blue),
+          _buildCategoryStat('📦 DELIV.', delivery, Colors.deepPurple),
+          _buildCategoryStat('☕ REST', rest, Colors.orange),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryStat(String label, int mins, Color color) {
+    final hours = mins ~/ 60;
+    final remaining = mins % 60;
+    final timeStr = hours > 0 ? "${hours}h ${remaining}m" : "${remaining}m";
+
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5)),
+        const SizedBox(height: 8),
+        Text(timeStr, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+      ],
     );
   }
 
@@ -871,7 +912,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       return ListView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        itemCount: logs.length,
+        itemCount: logs.length > 5 ? 5 : logs.length, // Only show last 5 events for cleaner dashboard
         padding: const EdgeInsets.symmetric(horizontal: 20),
         itemBuilder: (context, index) {
           final log = logs[index];
@@ -883,18 +924,18 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                 Column(
                   children: [
                     Container(
-                      width: 12,
-                      height: 12,
+                      width: 10,
+                      height: 10,
                       decoration: BoxDecoration(
                         color: _getEventColor(log.event),
                         shape: BoxShape.circle,
                       ),
                     ),
-                    if (index != logs.length - 1)
+                    if (index != (logs.length > 5 ? 4 : logs.length - 1))
                       Expanded(
                         child: Container(
                           width: 2,
-                          color: Colors.grey.withValues(alpha: 0.2),
+                          color: Colors.grey.withValues(alpha: 0.1),
                         ),
                       ),
                   ],
@@ -906,9 +947,14 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(log.event, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        Text(time, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                        if (log.note != null)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(log.event, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            Text(time, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                          ],
+                        ),
+                        if (log.note != null && log.note!.isNotEmpty)
                           Text(log.note!, style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 12, color: Colors.blueGrey)),
                       ],
                     ),
@@ -921,6 +967,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       );
     });
   }
+
 
   Color _getEventColor(String event) {
     if (event.contains('Reached')) {
@@ -942,39 +989,96 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
 
   Widget _buildModernDateSelector(BuildContext context, Color primaryColor, Color cardColor, Color? subTextColor) {
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12)),
-            child: IconButton(icon: const Icon(Icons.arrow_back_ios_rounded, size: 18), onPressed: analyticsCtrl.goToPreviousDay),
-          ),
-          GestureDetector(
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: analyticsCtrl.selectedDate.value,
-                firstDate: DateTime(2020),
-                lastDate: DateTime.now(),
-              );
-              if (picked != null) {
-                await analyticsCtrl.loadAnalyticsForDate(picked);
-              }
-            },
-            child: Column(
-              children: [
-                Text(DateFormat('EEEE').format(analyticsCtrl.selectedDate.value).toUpperCase(), style: TextStyle(fontSize: 10, color: subTextColor, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 4),
-                Text(DateFormat('dd MMM yyyy').format(analyticsCtrl.selectedDate.value), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              ],
+          // Previous Day Button
+          _buildDateNavButton(Icons.chevron_left_rounded, analyticsCtrl.goToPreviousDay),
+          
+          const SizedBox(width: 12),
+          
+          // Date Display Capsule
+          Expanded(
+            child: GestureDetector(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: analyticsCtrl.selectedDate.value,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                );
+                if (picked != null) {
+                  await analyticsCtrl.loadAnalyticsForDate(picked);
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: primaryColor.withValues(alpha: 0.15)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.calendar_today_rounded, size: 16, color: primaryColor),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          DateFormat('EEEE').format(analyticsCtrl.selectedDate.value).toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: subTextColor?.withValues(alpha: 0.7),
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        Text(
+                          DateFormat('dd MMM yyyy').format(analyticsCtrl.selectedDate.value),
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: subTextColor?.withValues(alpha: 0.3)),
+                  ],
+                ),
+              ),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12)),
-            child: IconButton(icon: const Icon(Icons.arrow_forward_ios_rounded, size: 18), onPressed: analyticsCtrl.goToNextDay),
-          ),
+          
+          const SizedBox(width: 12),
+          
+          // Next Day Button
+          _buildDateNavButton(Icons.chevron_right_rounded, analyticsCtrl.goToNextDay),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDateNavButton(IconData icon, VoidCallback onTap) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          )
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(icon, size: 24, color: Theme.of(context).colorScheme.primary),
+        onPressed: onTap,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
       ),
     );
   }
@@ -999,39 +1103,100 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildPremiumCard(String title, String value, String unit, IconData icon, MaterialColor color) {
+  Widget _buildPremiumCard(String title, String value, String unit, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
-            child: Icon(icon, color: color, size: 20),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  if (unit.isNotEmpty) const SizedBox(width: 4),
-                  if (unit.isNotEmpty) Text(unit, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-              Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            ],
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Stack(
+          children: [
+            // Subtle Background Gradient/Accent
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.05),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(icon, color: color, size: 22),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            value,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          if (unit.isNotEmpty) const SizedBox(width: 4),
+                          if (unit.isNotEmpty)
+                            Text(
+                              unit,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.withValues(alpha: 0.6),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        title.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.withValues(alpha: 0.5),
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

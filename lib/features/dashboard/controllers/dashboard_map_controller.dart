@@ -11,7 +11,7 @@ class DashboardMapController extends GetxController {
   final RxSet<Polyline> polylines = <Polyline>{}.obs;
   final RxSet<Marker> markers = <Marker>{}.obs;
   final List<LatLng> routePoints = [];
-  final RxBool isNavMode = true.obs;
+  final RxBool isNavMode = false.obs;
   final RxnString mapStyle = RxnString();
 
   BitmapDescriptor? bikeIcon;
@@ -22,9 +22,8 @@ class DashboardMapController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    if (isNavMode.value) {
-      _applyNavigationTheme();
-    }
+    // Default to normal style as requested
+    mapStyle.value = null;
   }
 
   // ✅ Initial default position (Imphal area based on coordinates)

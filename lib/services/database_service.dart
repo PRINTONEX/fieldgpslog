@@ -3,7 +3,6 @@ import '../models/vehicle.dart';
 import '../models/gps_log.dart';
 import '../models/work_location.dart';
 import '../models/expense_log.dart';
-import '../models/delivery_proof.dart';
 import '../models/activity_log.dart';
 
 class DatabaseService {
@@ -11,14 +10,12 @@ class DatabaseService {
   static const String gpsLogBoxName = 'gps_logs';
   static const String workLocationBoxName = 'work_locations';
   static const String expenseBoxName = 'expenses';
-  static const String proofBoxName = 'proofs';
   static const String activityLogBoxName = 'activity_logs';
 
   Box<Vehicle>? _vehicleBox;
   Box<GpsLog>? _gpsLogBox;
   Box<WorkLocation>? _workLocationBox;
   Box<ExpenseLog>? _expenseBox;
-  Box<DeliveryProof>? _proofBox;
   Box<ActivityLog>? _activityLogBox;
   Box? _settingsBox;
 
@@ -49,9 +46,6 @@ class DatabaseService {
     if (!Hive.isAdapterRegistered(8)) {
       Hive.registerAdapter(ExpenseLogAdapter());
     }
-    if (!Hive.isAdapterRegistered(9)) {
-      Hive.registerAdapter(DeliveryProofAdapter());
-    }
     if (!Hive.isAdapterRegistered(10)) {
       Hive.registerAdapter(ActivityLogAdapter());
     }
@@ -70,7 +64,6 @@ class DatabaseService {
       Hive.openBox<GpsLog>(gpsLogBoxName),
       Hive.openBox<WorkLocation>(workLocationBoxName),
       Hive.openBox<ExpenseLog>(expenseBoxName),
-      Hive.openBox<DeliveryProof>(proofBoxName),
       Hive.openBox<ActivityLog>(activityLogBoxName),
     ]);
 
@@ -78,8 +71,7 @@ class DatabaseService {
     _gpsLogBox = boxes[1] as Box<GpsLog>;
     _workLocationBox = boxes[2] as Box<WorkLocation>;
     _expenseBox = boxes[3] as Box<ExpenseLog>;
-    _proofBox = boxes[4] as Box<DeliveryProof>;
-    _activityLogBox = boxes[5] as Box<ActivityLog>;
+    _activityLogBox = boxes[4] as Box<ActivityLog>;
   }
 
   bool get hasShownDefaultMapPrompt => _settingsBox?.get('default_map_prompt', defaultValue: false) ?? false;
@@ -139,14 +131,6 @@ class DatabaseService {
     final box = _expenseBox;
     if (box == null || !box.isOpen) {
       throw StateError('Expense box has not been opened.');
-    }
-    return box;
-  }
-
-  Box<DeliveryProof> get proofBox {
-    final box = _proofBox;
-    if (box == null || !box.isOpen) {
-      throw StateError('Proof box has not been opened.');
     }
     return box;
   }

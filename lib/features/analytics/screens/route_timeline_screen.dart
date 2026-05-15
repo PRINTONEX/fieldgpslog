@@ -1,10 +1,12 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../models/delivery_analytics.dart';
+import '../../../models/work_location.dart';
+import '../../../services/database_service.dart';
+import '../../../core/utils/distance_calculator.dart';
 import '../controllers/analytics_controller.dart';
 import '../controllers/replay_controller.dart';
 
@@ -18,41 +20,48 @@ class RouteTimelineScreen extends StatefulWidget {
 class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
   late final ReplayController controller;
   final Completer<GoogleMapController> _mapCompleter = Completer();
-  DateTime? _lastCameraUpdate;
+  final RxBool _isFullScreen = false.obs;
+  WorkLocation? _officeLocation;
 
   @override
   void initState() {
     super.initState();
     controller = Get.put(ReplayController());
-    
-    // Add camera listener to the animation
-    controller.animationController.addListener(_updateCameraIfNeeded);
+    _loadOfficeLocation();
   }
 
-  void _updateCameraIfNeeded() async {
-    if (!controller.isAutoFollowing.value || controller.currentPosition.value == null) return;
-    
-    final now = DateTime.now();
-    if (_lastCameraUpdate == null || now.difference(_lastCameraUpdate!) > const Duration(milliseconds: 300)) {
-      _lastCameraUpdate = now;
-      final GoogleMapController mapCtrl = await _mapCompleter.future;
-      
-      double speed = controller.currentSpeed.value;
-      double zoom = 17.5;
-      if (speed > 40) zoom = 16.0;
-      else if (speed < 5) zoom = 18.5;
-
-      mapCtrl.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: controller.currentPosition.value!,
-            zoom: zoom,
-            bearing: controller.currentRotation.value,
-            tilt: 45,
-          ),
-        ),
+  void _loadOfficeLocation() {
+    final db = Get.find<DatabaseService>();
+    try {
+      _officeLocation = db.workLocationBox.values.firstWhere(
+        (loc) => loc.name.toLowerCase() == 'office',
       );
+    } catch (_) {
+      _officeLocation = null;
     }
+  }
+
+  double _getDistanceFromOffice(double lat, double lng) {
+    if (_officeLocation == null) return 0.0;
+    return DistanceCalculator.calculateDistance(
+      lat,
+      lng,
+      _officeLocation!.latitude,
+      _officeLocation!.longitude,
+    );
+  }
+
+  Future<void> _zoomToStop(DeliveryStop stop) async {
+    final GoogleMapController mapCtrl = await _mapCompleter.future;
+    mapCtrl.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(stop.latitude, stop.longitude),
+          zoom: 18,
+          tilt: 0,
+        ),
+      ),
+    );
   }
 
   @override
@@ -64,58 +73,68 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: const Text('Route Timeline'),
+        actions: [
+          IconButton(
+            icon: Obx(() => Icon(_isFullScreen.value ? Icons.fullscreen_exit : Icons.fullscreen)),
+            onPressed: () => _isFullScreen.toggle(),
+          ),
+        ],
+      ),
       body: Obx(() {
         if (controller.isLoading.value) {
-          return const Center(child: CircularProgressIndicator(color: Colors.cyanAccent));
+          return const Center(child: CircularProgressIndicator());
         }
-        return Stack(
+
+        return Column(
           children: [
-            _buildMap(),
-            _buildHUD(),
-            _buildTimelineDrawer(),
-            _buildBottomControls(),
-            _buildTopBar(),
+            // Map Section
+            Expanded(
+              flex: _isFullScreen.value ? 10 : 4,
+              child: Stack(
+                children: [
+                  _buildMap(),
+                  if (!_isFullScreen.value)
+                    Positioned(
+                      bottom: 16,
+                      right: 16,
+                      child: FloatingActionButton.small(
+                        heroTag: 'zoom_in',
+                        onPressed: () async {
+                          final map = await _mapCompleter.future;
+                          map.animateCamera(CameraUpdate.zoomIn());
+                        },
+                        child: const Icon(Icons.add),
+                      ),
+                    ),
+                  if (!_isFullScreen.value)
+                    Positioned(
+                      bottom: 70,
+                      right: 16,
+                      child: FloatingActionButton.small(
+                        heroTag: 'zoom_out',
+                        onPressed: () async {
+                          final map = await _mapCompleter.future;
+                          map.animateCamera(CameraUpdate.zoomOut());
+                        },
+                        child: const Icon(Icons.remove),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Timeline Section
+            if (!_isFullScreen.value)
+              Expanded(
+                flex: 6,
+                child: _buildTimelineList(),
+              ),
           ],
         );
       }),
-    );
-  }
-
-  Widget _buildTopBar() {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 10,
-      left: 16,
-      right: 16,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          CircleAvatar(
-            backgroundColor: Colors.black.withOpacity(0.5),
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Get.back(),
-            ),
-          ),
-          _buildGlassCard(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              DateFormat('dd MMM yyyy').format(Get.find<AnalyticsController>().selectedDate.value),
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ),
-          Obx(() => CircleAvatar(
-            backgroundColor: controller.isAutoFollowing.value ? Colors.cyanAccent : Colors.black.withOpacity(0.5),
-            child: IconButton(
-              icon: Icon(
-                controller.isAutoFollowing.value ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-                color: controller.isAutoFollowing.value ? Colors.black : Colors.white,
-              ),
-              onPressed: () => controller.isAutoFollowing.toggle(),
-            ),
-          )),
-        ],
-      ),
     );
   }
 
@@ -123,285 +142,193 @@ class _RouteTimelineScreenState extends State<RouteTimelineScreen> {
     return GoogleMap(
       initialCameraPosition: CameraPosition(
         target: controller.allPoints.isNotEmpty ? controller.allPoints.first : const LatLng(0, 0),
-        zoom: 17,
-        tilt: 45,
+        zoom: 15,
       ),
       onMapCreated: (mapCtrl) => _mapCompleter.complete(mapCtrl),
       markers: controller.markers,
       polylines: controller.polylines,
+      myLocationEnabled: true,
+      myLocationButtonEnabled: true,
       zoomControlsEnabled: false,
-      myLocationButtonEnabled: false,
-      mapToolbarEnabled: false,
-      scrollGesturesEnabled: true,
-      zoomGesturesEnabled: true,
-      tiltGesturesEnabled: true,
-      rotateGesturesEnabled: true,
-      style: _darkMapStyle,
-      onCameraMoveStarted: () {
-        // Optional: If you want manual move to disable auto-follow temporarily
-        // But for "driving" feel, we can keep it active unless user taps a button
-      },
+      mapToolbarEnabled: true,
     );
   }
 
-  Widget _buildHUD() {
-    return Positioned(
-      top: 100,
-      left: 16,
-      right: 16,
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildGlassCard(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.navigation_rounded, color: Colors.cyanAccent),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Obx(() => Text(controller.currentStatus.value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis)),
-                            Text("JOURNEY IN PROGRESS", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
-                          ],
+  Widget _buildTimelineList() {
+    if (controller.stops.isEmpty) {
+      return const Center(child: Text("No stops detected for this trip."));
+    }
+
+    // Calculate totals for the 4 categories
+    int homeMinutes = 0;
+    int officeMinutes = 0;
+    int deliveryMinutes = 0;
+    int restMinutes = 0;
+
+    for (var stop in controller.stops) {
+      final type = stop.stopType.toLowerCase();
+      debugPrint("🔍 RouteTimeline: Found stop type: '$type' | Duration: ${stop.durationMinutes} min");
+      
+      if (type == 'home') homeMinutes += stop.durationMinutes;
+      else if (type == 'office') officeMinutes += stop.durationMinutes;
+      else if (type == 'rest') restMinutes += stop.durationMinutes;
+      else if (type == 'delivery') deliveryMinutes += stop.durationMinutes;
+    }
+
+    return Column(
+      children: [
+        // Summary Card for the 4 Categories
+        _buildCategorySummary(homeMinutes, officeMinutes, deliveryMinutes, restMinutes),
+        
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Text("Timeline Detail", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ),
+
+        // Timeline List with the dot-and-line style
+        Expanded(
+          child: ListView.builder(
+            itemCount: controller.stops.length,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemBuilder: (context, index) {
+              final stop = controller.stops[index];
+              final time = "${DateFormat('hh:mm a').format(stop.arrivalTime)} - ${DateFormat('hh:mm a').format(stop.departureTime)}";
+              final distFromOffice = _getDistanceFromOffice(stop.latitude, stop.longitude);
+
+              return IntrinsicHeight(
+                child: Row(
+                  children: [
+                    // Dot and Line Column
+                    Column(
+                      children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: _getStopColor(stop.stopType),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        if (index != controller.stops.length - 1)
+                          Expanded(
+                            child: Container(
+                              width: 2,
+                              color: Colors.grey.withOpacity(0.2),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+                    
+                    // Content Column
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _zoomToStop(stop),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(stop.stopType.toUpperCase(), 
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                  Text("${stop.durationMinutes} min", 
+                                    style: TextStyle(color: _getStopColor(stop.stopType), fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                              Text(time, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                              const SizedBox(height: 4),
+                              Text(
+                                "Last Stop: ${stop.distanceFromPreviousStop.toStringAsFixed(1)} km | Office: ${distFromOffice.toStringAsFixed(1)} km",
+                                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              _buildGlassCard(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Obx(() => Text("${controller.currentSpeed.value.toStringAsFixed(0)}", style: const TextStyle(color: Colors.cyanAccent, fontSize: 24, fontWeight: FontWeight.bold))),
-                    const Text("km/h", style: TextStyle(color: Colors.white54, fontSize: 10)),
+                    ),
                   ],
                 ),
-              ),
-            ],
+              );
+            },
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCategorySummary(int home, int office, int delivery, int rest) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Time Breakdown", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
           const SizedBox(height: 12),
-          _buildGlassCard(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Obx(() => _buildHUDStat("Distance", "${controller.currentDistance.value.toStringAsFixed(1)} km")),
-                Obx(() => _buildHUDStat("Stops", "${controller.stops.where(_isStopReached).length} / ${controller.stops.length}")),
-                _buildHUDStat("Total", "${Get.find<AnalyticsController>().dailySummary.value?.totalDistanceKm.toStringAsFixed(1)} km"),
-              ],
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildCategoryItem("🏠 Home", home, Colors.green),
+              _buildCategoryItem("🏢 Office", office, Colors.blue),
+              _buildCategoryItem("📦 Delivery", delivery, Colors.deepPurple),
+              _buildCategoryItem("☕ Rest", rest, Colors.orange),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHUDStat(String label, String value) {
+  Widget _buildCategoryItem(String label, int minutes, Color color) {
+    final hours = minutes ~/ 60;
+    final remainingMins = minutes % 60;
+    final timeStr = hours > 0 ? "${hours}h ${remainingMins}m" : "${remainingMins}m";
+
     return Column(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+        Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        Text(
+          timeStr,
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color),
+        ),
       ],
     );
   }
 
-  Widget _buildBottomControls() {
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 30),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Obx(() {
-                  final duration = controller.animationController.duration ?? Duration.zero;
-                  final currentSeconds = (controller.progress.value * duration.inSeconds).toInt();
-                  return Text(
-                    _formatDuration(Duration(seconds: currentSeconds)),
-                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
-                  );
-                }),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: Colors.cyanAccent,
-                      inactiveTrackColor: Colors.white10,
-                      thumbColor: Colors.white,
-                      trackHeight: 2,
-                    ),
-                    child: Obx(() => Slider(
-                      value: controller.progress.value.clamp(0.0, 1.0),
-                      onChanged: (val) {
-                        controller.animationController.value = val;
-                      },
-                    )),
-                  ),
-                ),
-                Obx(() {
-                  // Access playbackSpeed to ensure this updates when duration changes via speed change
-                  controller.playbackSpeed.value;
-                  return Text(
-                    _formatDuration(controller.animationController.duration ?? Duration.zero),
-                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
-                  );
-                }),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildIconButton(Icons.replay_rounded, () => controller.animationController.reset()),
-                Obx(() => _buildIconButton(
-                  controller.isPlaying.value ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  controller.togglePlay,
-                  isLarge: true,
-                )),
-                Obx(() => _buildTextButton("${controller.playbackSpeed.value.toInt()}x", controller.changeSpeed)),
-              ],
-            ),
-          ],
-        ),
-      ),
+  Widget _buildMiniStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 
-  Widget _buildIconButton(IconData icon, VoidCallback onTap, {bool isLarge = false}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: CircleAvatar(
-        radius: isLarge ? 30 : 22,
-        backgroundColor: isLarge ? Colors.cyanAccent : Colors.white.withOpacity(0.1),
-        child: Icon(icon, color: isLarge ? Colors.black : Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildTextButton(String text, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildGlassCard({required Widget child, EdgeInsets? padding}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimelineDrawer() {
-    return Positioned(
-      top: 180,
-      right: 16,
-      bottom: 150,
-      width: 60,
-      child: SingleChildScrollView(
-        child: Column(
-          children: List.generate(controller.stops.length, (index) {
-            final stop = controller.stops[index];
-            return Obx(() {
-              final bool isReached = _isStopReached(stop);
-              return Column(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isReached ? Colors.cyanAccent : Colors.white10,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        _getStopIcon(stop.stopType),
-                        size: 20,
-                        color: isReached ? Colors.black : Colors.white54,
-                      ),
-                    ),
-                  ),
-                  if (index < controller.stops.length - 1)
-                    Container(width: 2, height: 40, color: Colors.white10),
-                ],
-              );
-            });
-          }),
-        ),
-      ),
-    );
-  }
-
-  bool _isStopReached(DeliveryStop stop) {
-    if (controller.allGpsPoints.isEmpty) return false;
-    final currentIndex = (controller.progress.value * (controller.allGpsPoints.length - 1)).floor();
-    final currentTime = controller.allGpsPoints[currentIndex].timestamp;
-    return currentTime != null && currentTime.isAfter(stop.arrivalTime);
-  }
-
-  IconData _getStopIcon(String type) {
-    switch (type) {
-      case 'home': return Icons.home_rounded;
-      case 'office': return Icons.business_rounded;
-      default: return Icons.local_shipping_rounded;
+  Color _getStopColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'home': return Colors.green;
+      case 'office': return Colors.blue;
+      case 'rest': return Colors.orange;
+      default: return Colors.deepPurple;
     }
   }
 
-  String _formatDuration(Duration d) {
-    String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String twoDigitMinutes = twoDigits(d.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(d.inSeconds.remainder(60));
-    return "${twoDigits(d.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
+  IconData _getStopIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'home': return Icons.home_rounded;
+      case 'office': return Icons.business_rounded;
+      case 'rest': return Icons.coffee_rounded;
+      default: return Icons.local_shipping_rounded;
+    }
   }
-
-  final String _darkMapStyle = '''
-[
-  {"elementType": "geometry", "stylers": [{"color": "#212121"}]},
-  {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-  {"elementType": "labels.text.fill", "stylers": [{"color": "#757575"}]},
-  {"elementType": "labels.text.stroke", "stylers": [{"color": "#212121"}]},
-  {"featureType": "administrative", "elementType": "geometry", "stylers": [{"color": "#757575"}]},
-  {"featureType": "road", "elementType": "geometry.fill", "stylers": [{"color": "#2c2c2c"}]},
-  {"featureType": "road", "elementType": "labels.text.fill", "stylers": [{"color": "#8a8a8a"}]},
-  {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#000000"}]}
-]
-''';
 }

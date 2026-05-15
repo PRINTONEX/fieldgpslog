@@ -9,9 +9,7 @@ import 'core/theme/app_theme.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/vehicles/screens/vehicle_list_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
-import 'features/analytics/screens/heatmap_screen.dart';
-import 'features/debug/screens/debug_screen.dart';
-import 'features/analytics/screens/daily_travel_summary_screen.dart';
+import 'features/debug/screens/logs_screen.dart';
 import 'services/database_service.dart';
 import 'services/background_service.dart';
 import 'services/analytics_service.dart';
@@ -72,9 +70,7 @@ class MyApp extends StatelessWidget {
         GetPage(name: '/', page: () => const DashboardScreen()),
         GetPage(name: '/vehicles', page: () => const VehicleListScreen()),
         GetPage(name: '/settings', page: () => const SettingsScreen()),
-        GetPage(name: '/heatmap', page: () => const HeatmapScreen()),
-        GetPage(name: '/debug', page: () => const DebugScreen()),
-        GetPage(name: '/analytics', page: () => const DailyTravelSummaryScreen()),
+        GetPage(name: '/logs', page: () => const SystemLogsScreen()),
       ],
     );
   }

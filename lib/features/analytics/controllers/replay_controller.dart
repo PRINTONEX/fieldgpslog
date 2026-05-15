@@ -105,6 +105,9 @@ class ReplayController extends GetxController with GetSingleTickerProviderStateM
     }
   }
 
+  int _lastPolylineUpdateIndex = -1;
+  double _smoothedBearing = 0.0;
+
   void _onAnimationUpdate() {
     if (allPoints.isEmpty) return;
 
@@ -115,16 +118,25 @@ class ReplayController extends GetxController with GetSingleTickerProviderStateM
     final double fraction = indexFloat - index;
 
     LatLng newPos;
+    double targetBearing = currentRotation.value;
+
     if (index >= allPoints.length - 1) {
       newPos = allPoints.last;
     } else {
       final start = allPoints[index];
       final end = allPoints[index + 1];
+      
+      // Smooth linear interpolation for position
       newPos = LatLng(
         start.latitude + (end.latitude - start.latitude) * fraction,
         start.longitude + (end.longitude - start.longitude) * fraction
       );
-      currentRotation.value = _calculateBearing(start, end);
+
+      // Calculate bearing and smooth it
+      targetBearing = _calculateBearing(start, end);
+      // Simple LERP for bearing to avoid rapid jitter
+      _smoothedBearing = _interpolateBearing(_smoothedBearing, targetBearing, 0.2);
+      currentRotation.value = _smoothedBearing;
     }
 
     currentPosition.value = newPos;
@@ -136,11 +148,18 @@ class ReplayController extends GetxController with GetSingleTickerProviderStateM
     final totalDist = Get.find<AnalyticsController>().dailySummary.value?.totalDistanceKm ?? 0;
     currentDistance.value = (index / allPoints.length) * totalDist;
 
-    // UPDATE MAP ELEMENTS WITHOUT REBUILDING MAP
-    _updateDynamicMapElements(index);
+    // PERFORMANCE OPTIMIZATION: 
+    // Only update polyline every 5 points to reduce Map render load
+    // But always update bike marker position for visual smoothness
+    if (index != _lastPolylineUpdateIndex && index % 5 == 0) {
+      _updateDynamicPolylines(index);
+      _lastPolylineUpdateIndex = index;
+    }
+    
+    _updateBikeMarker();
   }
 
-  void _updateDynamicMapElements(int index) {
+  void _updateDynamicPolylines(int index) {
     // 1. Update Animated Route Polyline
     final traveledPoints = allPoints.sublist(0, index + 1);
     
@@ -151,27 +170,37 @@ class ReplayController extends GetxController with GetSingleTickerProviderStateM
       points: traveledPoints,
       color: const Color(0x4000FFFF),
       width: 12,
+      jointType: JointType.round,
     ));
     polylines.add(Polyline(
       polylineId: const PolylineId('route_traveled'),
       points: traveledPoints,
       color: const Color(0xFF00E5FF),
       width: 5,
+      jointType: JointType.round,
     ));
+  }
 
-    // 2. Update Bike Marker
+  void _updateBikeMarker() {
+    if (currentPosition.value == null) return;
+    
     markers.removeWhere((m) => m.markerId.value == 'bike');
-    if (currentPosition.value != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('bike'),
-        position: currentPosition.value!,
-        rotation: currentRotation.value,
-        anchor: const Offset(0.5, 0.5),
-        flat: true,
-        zIndexInt: 100,
-        icon: bikeIcon ?? BitmapDescriptor.defaultMarker,
-      ));
-    }
+    markers.add(Marker(
+      markerId: const MarkerId('bike'),
+      position: currentPosition.value!,
+      rotation: currentRotation.value,
+      anchor: const Offset(0.5, 0.5),
+      flat: true,
+      zIndexInt: 100,
+      icon: bikeIcon ?? BitmapDescriptor.defaultMarker,
+    ));
+  }
+
+  double _interpolateBearing(double start, double end, double fraction) {
+    double diff = end - start;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    return (start + diff * fraction + 360) % 360;
   }
 
   void _updateStatus(int index) {
