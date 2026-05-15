@@ -16,6 +16,7 @@ import 'services/database_service.dart';
 import 'services/background_service.dart';
 import 'services/analytics_service.dart';
 import 'services/log_service.dart';
+import 'services/deep_link_service.dart';
 import 'features/vehicles/controllers/vehicle_controller.dart';
 
 void main() async {
@@ -27,33 +28,29 @@ void main() async {
     mapsImplementation.useAndroidViewSurface = true;
   }
 
-  // Diagnostic: Print app paths to debug data loss
-  if (Platform.isAndroid) {
-    getApplicationDocumentsDirectory().then((dir) {
-      debugPrint('📦 App Documents Path: ${dir.path}');
-    });
-    getExternalStorageDirectory().then((dir) {
-      debugPrint('📂 External Storage Path: ${dir?.path}');
-    });
-  }
-
+  // 1. Initialize Hive FIRST (Critical - cannot be parallel with box opening)
   final dbService = Get.put(DatabaseService(), permanent: true);
   await dbService.initHive();
-  await dbService.openBoxes();
 
-  // Initialize LogService for debug logging
-  await LogService.init();
+  // 2. Open all boxes and initialize dependent services in parallel
+  await Future.wait([
+    dbService.openBoxes(),
+    LogService.init(),
+  ]);
 
-  // Initialize Analytics Service
-  final analyticsService =
-      Get.put(AnalyticsService(dbService), permanent: true);
-  await analyticsService.init();
+  // 3. Initialize secondary services
+  final analyticsService = Get.put(AnalyticsService(dbService), permanent: true);
+  final deepLinkService = Get.put(DeepLinkService(), permanent: true);
+  
+  await Future.wait([
+    analyticsService.init(),
+    deepLinkService.init(),
+  ]);
 
   Get.put(VehicleController(), permanent: true);
-
-  // ✅ Register Background Service as a singleton to avoid re-instantiation errors
   Get.put(FlutterBackgroundService());
 
+  // Background service initialization
   await initializeBackgroundService();
 
   runApp(const MyApp());

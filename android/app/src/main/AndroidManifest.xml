@@ -47,6 +47,27 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Support for geo: URIs and Google Maps links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" android:host="maps.google.com" />
+                <data android:scheme="https" android:host="maps.google.com" />
+                <data android:scheme="http" android:host="www.google.com" android:pathPrefix="/maps" />
+                <data android:scheme="https" android:host="www.google.com" android:pathPrefix="/maps" />
+                <data android:scheme="http" android:host="maps.app.goo.gl" />
+                <data android:scheme="https" android:host="maps.app.goo.gl" />
+                <data android:scheme="http" android:host="goo.gl" android:pathPrefix="/maps" />
+                <data android:scheme="https" android:host="goo.gl" android:pathPrefix="/maps" />
+            </intent-filter>
         </activity>
 
         <!-- Background Service Declaration for Android 14+ -->

@@ -20,6 +20,7 @@ class DatabaseService {
   Box<ExpenseLog>? _expenseBox;
   Box<DeliveryProof>? _proofBox;
   Box<ActivityLog>? _activityLogBox;
+  Box? _settingsBox;
 
   Future<void> init() async {
     // Check if already initialized in this isolate
@@ -30,6 +31,8 @@ class DatabaseService {
 
   Future<void> initHive() async {
     await Hive.initFlutter();
+    
+    // ... (rest of the adapters)
 
     if (!Hive.isAdapterRegistered(0)) {
       Hive.registerAdapter(VehicleAdapter());
@@ -58,30 +61,29 @@ class DatabaseService {
   }
 
   Future<void> openBoxes() async {
-    _vehicleBox = Hive.isBoxOpen(vehicleBoxName)
-        ? Hive.box<Vehicle>(vehicleBoxName)
-        : await Hive.openBox<Vehicle>(vehicleBoxName);
+    // Open settings box first as it might be needed for logic
+    _settingsBox = await Hive.openBox('settings');
 
-    _gpsLogBox = Hive.isBoxOpen(gpsLogBoxName)
-        ? Hive.box<GpsLog>(gpsLogBoxName)
-        : await Hive.openBox<GpsLog>(gpsLogBoxName);
+    // Open all other boxes in parallel for much faster startup
+    final boxes = await Future.wait([
+      Hive.openBox<Vehicle>(vehicleBoxName),
+      Hive.openBox<GpsLog>(gpsLogBoxName),
+      Hive.openBox<WorkLocation>(workLocationBoxName),
+      Hive.openBox<ExpenseLog>(expenseBoxName),
+      Hive.openBox<DeliveryProof>(proofBoxName),
+      Hive.openBox<ActivityLog>(activityLogBoxName),
+    ]);
 
-    _workLocationBox = Hive.isBoxOpen(workLocationBoxName)
-        ? Hive.box<WorkLocation>(workLocationBoxName)
-        : await Hive.openBox<WorkLocation>(workLocationBoxName);
-
-    _expenseBox = Hive.isBoxOpen(expenseBoxName)
-        ? Hive.box<ExpenseLog>(expenseBoxName)
-        : await Hive.openBox<ExpenseLog>(expenseBoxName);
-
-    _proofBox = Hive.isBoxOpen(proofBoxName)
-        ? Hive.box<DeliveryProof>(proofBoxName)
-        : await Hive.openBox<DeliveryProof>(proofBoxName);
-
-    _activityLogBox = Hive.isBoxOpen(activityLogBoxName)
-        ? Hive.box<ActivityLog>(activityLogBoxName)
-        : await Hive.openBox<ActivityLog>(activityLogBoxName);
+    _vehicleBox = boxes[0] as Box<Vehicle>;
+    _gpsLogBox = boxes[1] as Box<GpsLog>;
+    _workLocationBox = boxes[2] as Box<WorkLocation>;
+    _expenseBox = boxes[3] as Box<ExpenseLog>;
+    _proofBox = boxes[4] as Box<DeliveryProof>;
+    _activityLogBox = boxes[5] as Box<ActivityLog>;
   }
+
+  bool get hasShownDefaultMapPrompt => _settingsBox?.get('default_map_prompt', defaultValue: false) ?? false;
+  Future<void> setShownDefaultMapPrompt(bool value) async => await _settingsBox?.put('default_map_prompt', value);
 
   Box<ActivityLog> get activityLogBox {
     final box = _activityLogBox;

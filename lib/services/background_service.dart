@@ -13,22 +13,24 @@ import 'database_service.dart';
 import 'log_service.dart';
 
 @pragma('vm:entry-point')
-void notificationTapBackground(NotificationResponse response) {
-  // Immediately handle the notification dismissal to stop the 'loading' spinner on Android
+void notificationTapBackground(NotificationResponse response) async {
+  // On Android, we need to initialize and cancel the notification to stop the 'loading' spinner
   final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
   
-  // NotificationResponse uses 'id' instead of 'notificationId'
+  // Note: We don't need full initialization just to cancel, but we must handle it quickly
   if (response.id != null) {
-    localNotifications.cancel(response.id!);
+    await localNotifications.cancel(response.id!);
   }
 
   if (response.actionId != null) {
     final SendPort? sendPort = IsolateNameServer.lookupPortByName('background_service_port');
-    sendPort?.send({
-      'actionId': response.actionId,
-      'input': response.input,
-      'notificationId': response.id,
-    });
+    if (sendPort != null) {
+      sendPort.send({
+        'actionId': response.actionId,
+        'input': response.input,
+        'notificationId': response.id,
+      });
+    }
   }
 }
 
@@ -57,6 +59,11 @@ Future<void> initializeBackgroundService() async {
     initializationSettings,
     onDidReceiveNotificationResponse: (NotificationResponse response) {
       if (response.actionId != null) {
+        // Dismiss immediately to stop spinner
+        if (response.id != null) {
+          flutterLocalNotificationsPlugin.cancel(response.id!);
+        }
+        
         service.invoke('notificationAction', {
           'actionId': response.actionId, 
           'input': response.input,
@@ -109,6 +116,9 @@ void onStart(ServiceInstance service) async {
   
   receivePort.listen((message) {
     if (message is Map) {
+      // ✅ Handle directly in background isolate
+      tracker.handleNotificationAction(Map<String, dynamic>.from(message));
+      // Inform main isolate for UI sync
       service.invoke('notificationAction', Map<String, dynamic>.from(message));
     }
   });
@@ -166,14 +176,35 @@ class BackgroundTracker {
       }
     });
 
-    service.on('notificationAction').listen((event) async {
-      final db = await ensureDatabase();
-      final action = event!['actionId'] as String;
-      final input = event['input'] as String?;
-      
-      LogService.log("🔔 Notification Action: $action, Input: $input");
+    service.on('notificationAction').listen((event) {
+      if (event != null) {
+        handleNotificationAction(Map<String, dynamic>.from(event));
+      }
+    });
 
-      await db.logActivity("Category: ${_capitalize(action)}", note: input);
+    LogService.log("Background Service Monitoring Active");
+  }
+
+  Future<void> handleNotificationAction(Map<String, dynamic> event) async {
+    final db = await ensureDatabase();
+    final action = event['actionId'] as String?;
+    if (action == null) return;
+    
+    final input = event['input'] as String?;
+    final notificationId = event['notificationId'] as int?;
+    
+    // Dismiss immediately
+    if (notificationId != null) {
+      localNotifications.cancel(notificationId);
+    } else {
+      _cancelStopNotification(); // Fallback
+    }
+
+    LogService.log("🔔 Processing Action: $action");
+
+    try {
+      final label = _capitalize(action);
+      await db.logActivity("Category: $label", note: input);
 
       if (activeLog != null) {
         final stay = StayPoint()
@@ -181,19 +212,23 @@ class BackgroundTracker {
           ..longitude = lastPosition?.longitude
           ..arrivalTime = stopDetectedTime ?? DateTime.now()
           ..departureTime = DateTime.now()
-          ..label = _capitalize(action)
+          ..label = label
           ..note = input;
         
         activeLog!.stays = [...activeLog!.stays, stay];
         changeVersion++;
         
-        LogService.log("✅ Activity saved to log: ${_capitalize(action)}");
+        // Immediate save
+        await db.saveLog(activeLog!);
+        persistedVersion = changeVersion;
+        
+        LogService.log("✅ Log updated with stay: $label");
+      } else {
+        LogService.log("ℹ️ Activity logged to database (No active GPS trip)");
       }
-      
-      _cancelStopNotification();
-    });
-
-    LogService.log("Background Service Monitoring Active");
+    } catch (e) {
+      LogService.log("❌ Error handling action: $e");
+    }
   }
 
   String _capitalize(String s) => s.isEmpty ? s : s.replaceAll('_', ' ').split(' ').map((word) => word.isEmpty ? '' : '${word[0].toUpperCase()}${word.substring(1)}').join(' ');
@@ -246,7 +281,7 @@ class BackgroundTracker {
     localNotifications.show(
       890,
       "Stop Detected",
-      "Where are you?",
+      "Tap to categorize this stop:",
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'gps_tracker_enterprise_v1',
@@ -254,28 +289,11 @@ class BackgroundTracker {
           importance: Importance.high,
           priority: Priority.high,
           actions: <AndroidNotificationAction>[
-            AndroidNotificationAction(
-              'delivery',
-              'Delivery',
-              inputs: [
-                AndroidNotificationActionInput(
-                  label: 'Add delivery note...',
-                  allowFreeFormInput: true,
-                )
-              ],
-            ),
-            AndroidNotificationAction(
-              'oil_pump',
-              'Oil Pump',
-            ),
-            AndroidNotificationAction(
-              'rest',
-              'Rest',
-            ),
-            AndroidNotificationAction(
-              'office',
-              'Office',
-            ),
+            AndroidNotificationAction('delivery', 'DELIVERY'),
+            AndroidNotificationAction('office', 'OFFICE'),
+            AndroidNotificationAction('home', 'HOME'),
+            AndroidNotificationAction('rest', 'REST'),
+            AndroidNotificationAction('oil_pump', 'OIL PUMP'),
           ],
         ),
       ),
@@ -367,7 +385,13 @@ class BackgroundTracker {
         activeLog!.totalDistance += distGained;
         activeLog!.totalFare = activeLog!.totalDistance * activeLog!.rateApplied;
         changeVersion++;
-        LogService.log("📈 Distance: ${activeLog!.totalDistance.toStringAsFixed(3)} km");
+
+// IMMEDIATE SAVE
+        await db.saveLog(activeLog!);
+        persistedVersion = changeVersion;
+        LogService.log(
+            "📈 Distance: ${activeLog!.totalDistance.toStringAsFixed(3)} km"
+        );
       }
       
       updateNotification(currentPOIName != null ? "At $currentPOIName" : "Tracking Active");

@@ -14,6 +14,8 @@ import '../../analytics/controllers/analytics_controller.dart';
 import '../../analytics/screens/route_timeline_screen.dart';
 import '../../../models/delivery_analytics.dart';
 import '../../../services/log_service.dart';
+import '../../../services/database_service.dart';
+import '../../../services/pdf_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -53,6 +55,70 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     _initializeUI();
     
     analyticsCtrl.loadAnalyticsForDate(DateTime.now());
+
+    // Show Default Map Prompt if not shown before
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkDefaultMapPrompt();
+    });
+  }
+
+  void _checkDefaultMapPrompt() async {
+    final db = Get.find<DatabaseService>();
+    if (!db.hasShownDefaultMapPrompt) {
+      _showDefaultMapDialog();
+    }
+  }
+
+  void _showDefaultMapDialog() {
+    Get.dialog(
+      AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.map_rounded, color: Colors.blueAccent),
+            SizedBox(width: 12),
+            Text("Set as Default Map?"),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("To automatically open delivery locations in this app:"),
+            SizedBox(height: 16),
+            Text("1. Click 'Go to Settings' below."),
+            Text("2. Find 'Open by default'."),
+            Text("3. Enable 'Open supported links'."),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Get.find<DatabaseService>().setShownDefaultMapPrompt(true);
+              Get.back();
+            },
+            child: const Text("LATER", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Get.find<DatabaseService>().setShownDefaultMapPrompt(true);
+              Get.back();
+              // Open App Info settings
+              // This is a common way to lead users to the "Open by default" section
+              // Since there's no direct intent for 'Open by default' sub-page across all OEMs
+              await Geolocator.openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text("GO TO SETTINGS"),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
   }
 
   Future<void> _initializeUI() async {
@@ -614,6 +680,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
 
   void _showEndDaySummary() {
     analyticsCtrl.loadAnalyticsForDate(DateTime.now());
+    final pdfService = PdfService();
+
     Get.bottomSheet(
       Container(
         padding: const EdgeInsets.all(24),
@@ -624,7 +692,22 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.check_circle_outline, size: 60, color: Colors.green),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const SizedBox(width: 40),
+                const Icon(Icons.check_circle_outline, size: 60, color: Colors.green),
+                IconButton(
+                  onPressed: () {
+                    final summary = analyticsCtrl.dailySummary.value;
+                    if (summary != null) {
+                      pdfService.shareDailyReport(summary);
+                    }
+                  },
+                  icon: const Icon(Icons.share_rounded, color: Colors.blueAccent),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             const Text("Daily Journey Summary", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 24),
@@ -633,7 +716,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               children: [
                 _buildSummaryStat("Distance", "${analyticsCtrl.dailySummary.value?.totalDistanceKm.toStringAsFixed(1)} km"),
                 _buildSummaryStat("Deliveries", "${analyticsCtrl.dailySummary.value?.totalDeliveriesCompleted}"),
-                _buildSummaryStat("Net Profit", "₹${analyticsCtrl.netProfit.value.toStringAsFixed(0)}"),
+                _buildSummaryStat("Working Time", "${analyticsCtrl.dailySummary.value?.formattedWorkingTime}"),
               ],
             )),
             const SizedBox(height: 32),
@@ -641,12 +724,15 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               width: double.infinity,
               height: 55,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  Get.back();
-                  Get.snackbar("Success", "Daily PDF Report Exported", snackPosition: SnackPosition.BOTTOM);
+                onPressed: () async {
+                  final summary = analyticsCtrl.dailySummary.value;
+                  if (summary != null) {
+                    await pdfService.shareDailyReport(summary);
+                    Get.back();
+                  }
                 },
                 icon: const Icon(Icons.picture_as_pdf),
-                label: const Text("GENERATE DAILY REPORT", style: TextStyle(fontWeight: FontWeight.bold)),
+                label: const Text("GENERATE & SHARE REPORT", style: TextStyle(fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
@@ -700,12 +786,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                 if (summary == null)
                   _buildEmptyState(primaryColor, subTextColor)
                 else ...[
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    child: Text('Financial Summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  _buildFinancialGrid(primaryColor, cardColor),
-                  
+
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     child: Text('Overview', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -857,52 +938,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     return Colors.grey;
   }
 
-  Widget _buildFinancialGrid(Color primaryColor, Color cardColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.count(
-        crossAxisCount: 3,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.9,
-        children: [
-          Obx(() => _buildCompactFinCard('Earnings', '₹${analyticsCtrl.totalEarnings.value.toStringAsFixed(0)}', Colors.green)),
-          Obx(() => _buildCompactFinCard('Expenses', '₹${analyticsCtrl.totalExpenses.value.toStringAsFixed(0)}', Colors.redAccent)),
-          Obx(() => _buildCompactFinCard('Net Profit', '₹${analyticsCtrl.netProfit.value.toStringAsFixed(0)}', Colors.blue, isBold: true)),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildCompactFinCard(String title, String value, Color color, {bool isBold = false}) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(title, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          FittedBox(
-            child: Text(
-              value, 
-              style: TextStyle(
-                fontSize: 18, 
-                fontWeight: isBold ? FontWeight.w900 : FontWeight.bold,
-                color: color
-              )
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildModernDateSelector(BuildContext context, Color primaryColor, Color cardColor, Color? subTextColor) {
     return Padding(

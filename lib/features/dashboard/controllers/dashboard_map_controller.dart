@@ -11,13 +11,21 @@ class DashboardMapController extends GetxController {
   final RxSet<Polyline> polylines = <Polyline>{}.obs;
   final RxSet<Marker> markers = <Marker>{}.obs;
   final List<LatLng> routePoints = [];
-  final RxBool isNavMode = false.obs;
+  final RxBool isNavMode = true.obs;
   final RxnString mapStyle = RxnString();
 
   BitmapDescriptor? bikeIcon;
   BitmapDescriptor? navMarkerIcon;
   LatLng? _lastBikePosition;
   double _lastRotation = 0;
+
+  @override
+  void onInit() {
+    super.onInit();
+    if (isNavMode.value) {
+      _applyNavigationTheme();
+    }
+  }
 
   // ✅ Initial default position (Imphal area based on coordinates)
   final Rx<LatLng> initialPosition = const LatLng(24.6557166, 94.0190683).obs;
